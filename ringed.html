@@ -4444,7 +4444,7 @@
       const dirX = Math.abs(dx) + Math.abs(dy) < 8 ? Math.cos(player.angle || 0) : dx / d;
       const dirY = Math.abs(dx) + Math.abs(dy) < 8 ? Math.sin(player.angle || 0) : dy / d;
       if (!mobileControls.aimScreenX && !mobileControls.aimScreenY) {
-        initMobileAimCursorFromDirection(dirX, dirY);
+        initMobileAimCursor();
       } else if (hadTouch) {
         const sensitivity = 2.15;
         mobileControls.aimScreenX = clamp(mobileControls.aimScreenX + dragX * sensitivity, 18, width - 18);
