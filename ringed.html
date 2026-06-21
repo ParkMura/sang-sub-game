@@ -43,6 +43,7 @@
       pointer-events: none;
     }
   </style>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -96,6 +97,14 @@
     let skillActive = false;
     let skillTimer = 0;
     let currentWeapon = 0; // 0=소총, 1=산탄총, 2=마취총, 3=폭탄
+    // 멀티플레이어
+    const mp = {
+      role: null, peer: null, conn: null, roomCode: null,
+      connected: false, codeInput: "", status: "", stateTimer: 0,
+    };
+    let player2 = null;
+    let remotePlayer = null;
+    let p2Input = { mx: 0, my: 0, angle: 0, shoot: false };
     const taserBullets = [];
     let shake = 0;
     let gameOverTimer = 0;
@@ -258,6 +267,7 @@
         return;
       }
       if (state === "menu" && handleMenuClick(mouse.x, mouse.y)) return;
+      if (state === "lobby" && handleLobbyClick(mouse.x, mouse.y)) return;
       if (state === "maptool") {
         handleMapToolMouseDown(event);
         return;
@@ -1593,8 +1603,18 @@
         mapTool.statusTime = Math.max(0, mapTool.statusTime - dt);
         return;
       }
+      if (state === "lobby") return;
       if (state !== "play") {
         gameOverTimer += dt;
+        return;
+      }
+      // 클라이언트 모드: 입력 전송 후 로컬 게임 로직 스킵
+      if (mp.role === "client") {
+        const aimTarget = isMobile ? mobileAimWorldTarget() : screenToWorld(mouse.x, mouse.y);
+        player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
+        updateCamera(dt, aimTarget);
+        sendInputToHost();
+        if (isMobile && mobileControls.swap) { currentWeapon = (currentWeapon + 1) % 4; mobileControls.swap = false; }
         return;
       }
 
@@ -1655,6 +1675,33 @@
         player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
       }
       updateAimRay(aimTarget);
+      // Host: 플레이어2 업데이트
+      if (mp.role === "host" && player2 && mp.connected) {
+        const m2 = Math.hypot(p2Input.mx, p2Input.my);
+        if (m2 > 0.01) {
+          moveCircle(player2, p2Input.mx * 152 * dt, p2Input.my * 152 * dt);
+          player2.isMoving = true;
+        } else {
+          player2.isMoving = false;
+        }
+        player2.angle = p2Input.angle;
+        player2.invuln = Math.max(0, (player2.invuln || 0) - dt);
+        player2.shootCooldown = Math.max(0, (player2.shootCooldown || 0) - dt);
+        if (p2Input.shoot && player2.shootCooldown <= 0) {
+          const dx2 = Math.cos(player2.angle), dy2 = Math.sin(player2.angle);
+          const sx2 = player2.x + dx2 * 34, sy2 = player2.y + dy2 * 34;
+          const hit2 = raycastShot(sx2, sy2, dx2, dy2, 980);
+          tracers.push({ x1: sx2, y1: sy2, x2: hit2.x, y2: hit2.y, life: 0.09, maxLife: 0.09 });
+          if (hit2.enemy) { hit2.enemy.hp -= 44; burst(hit2.x, hit2.y, "#c8e7a0", 5); skillEnergy = Math.min(1, skillEnergy + 0.125); }
+          else if (hit2.solid) burst(hit2.x, hit2.y, "#f4efe8", 3);
+          player2.shootCooldown = 0.11;
+        }
+        mp.stateTimer -= dt;
+        if (mp.stateTimer <= 0) {
+          mp.stateTimer = 0.05;
+          sendStateToClient();
+        }
+      }
       if (skillActive) {
         skillTimer -= dt;
         if (skillTimer <= 0) { skillActive = false; skillEnergy = 0; }
@@ -1808,6 +1855,15 @@
             player.hp = 0;
             state = "dead";
             gameOverTimer = 0;
+          }
+        }
+        if (mp.role === "host" && player2 && player2.hp > 0) {
+          const dp2 = Math.hypot(player2.x - e.x, player2.y - e.y);
+          if (dp2 < collisionRadius(e) + 15 + 12 && e.bite <= 0 && (player2.invuln || 0) <= 0) {
+            e.bite = 0.55;
+            player2.hp -= e.fast ? 9 : 14;
+            player2.invuln = 0.18;
+            if (player2.hp <= 0) player2.hp = 0;
           }
         }
 
@@ -2572,6 +2628,7 @@
       ctx.clearRect(0, 0, width, height);
       if (state === "intro") drawIntroLogo();
       else if (state === "menu") drawMenu();
+      else if (state === "lobby") drawLobby();
       else if (state === "maptool") drawMapTool();
       else {
         drawGame();
@@ -2779,6 +2836,7 @@
       ctx.fillText("Click or press Enter to play", width / 2, height * 0.58);
       drawMenuCastShowcase();
       drawMenuButton(menuMapToolButton(), "MAP TOOL", false);
+      drawMenuButton(menuCoopButton(), "2P CO-OP", false);
     }
 
     function menuMapToolButton() {
@@ -2877,6 +2935,12 @@
         startMapTool();
         return true;
       }
+      const coopRect = menuCoopButton();
+      if (x >= coopRect.x && x <= coopRect.x + coopRect.w && y >= coopRect.y && y <= coopRect.y + coopRect.h) {
+        mp.role = null; mp.codeInput = ""; mp.status = "";
+        state = "lobby";
+        return true;
+      }
       return false;
     }
 
@@ -2902,6 +2966,8 @@
       for (const e of enemies) drawEnemy(e);
       drawSpeechBubbles();
       drawPlayer();
+      if (mp.role === "host" && player2) drawRemotePlayer(player2, true);
+      if (mp.role === "client" && remotePlayer) drawRemotePlayer(remotePlayer, false);
       drawParticles();
       drawOriginalFlashlightLayer();
       ctx.save();
@@ -4699,6 +4765,10 @@
           startGame();
           return;
         }
+        if (state === "lobby") {
+          handleLobbyClick(p.x, p.y);
+          return;
+        }
       if (state !== "play") continue;
       if (handleGameMenuButtonClick(p.x, p.y)) return;
       if (handleSpecialForcesToggleClick(p.x, p.y)) return;
@@ -5666,6 +5736,330 @@
         camera.zoom = savedCamera.zoom;
       }
     }
+
+    // ==================== MULTIPLAYER ====================
+
+    function menuCoopButton() {
+      return { x: width / 2 - 86, y: Math.min(height - 120, height * 0.66), w: 172, h: 42 };
+    }
+
+    function lobbyButtonRects() {
+      const bw = Math.min(170, width * 0.32);
+      const bh = Math.min(58, height * 0.1);
+      const gap = Math.min(24, width * 0.04);
+      return {
+        host: { x: width / 2 - bw - gap / 2, y: height * 0.44 - bh / 2, w: bw, h: bh },
+        join: { x: width / 2 + gap / 2, y: height * 0.44 - bh / 2, w: bw, h: bh },
+        back: { x: width / 2 - 70, y: height * 0.84, w: 140, h: 40 },
+      };
+    }
+
+    function inRect(x, y, rect) {
+      return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+    }
+
+    function handleLobbyClick(x, y) {
+      if (!mp.role) {
+        const rects = lobbyButtonRects();
+        if (inRect(x, y, rects.host)) { initHost(); return true; }
+        if (inRect(x, y, rects.join)) { mp.role = "client"; mp.status = ""; return true; }
+        if (inRect(x, y, rects.back)) { state = "menu"; resetMp(); return true; }
+      } else if (mp.role === "host") {
+        const rects = lobbyButtonRects();
+        if (inRect(x, y, rects.back)) { state = "menu"; resetMp(); return true; }
+      } else if (mp.role === "client" && !mp.connected) {
+        const padStartY = height * 0.61;
+        const btnSize = Math.min(58, width * 0.1);
+        const padGap = Math.min(16, width * 0.024);
+        const padW = btnSize * 3 + padGap * 2;
+        const padX = width / 2 - padW / 2;
+        const nums = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+        for (let i = 0; i < 12; i++) {
+          if (!nums[i]) continue;
+          const col = i % 3, row = Math.floor(i / 3);
+          const bx = padX + col * (btnSize + padGap);
+          const by = padStartY + row * (btnSize + padGap);
+          if (x >= bx && x <= bx + btnSize && y >= by && y <= by + btnSize) {
+            if (nums[i] === "⌫") {
+              mp.codeInput = mp.codeInput.slice(0, -1);
+            } else if (mp.codeInput.length < 4) {
+              mp.codeInput += nums[i];
+              if (mp.codeInput.length === 4) connectClient(mp.codeInput);
+            }
+            return true;
+          }
+        }
+        const rects = lobbyButtonRects();
+        if (inRect(x, y, rects.back)) { state = "menu"; resetMp(); return true; }
+      }
+      return false;
+    }
+
+    function resetMp() {
+      if (mp.peer) { try { mp.peer.destroy(); } catch(e) {} mp.peer = null; }
+      mp.role = null; mp.conn = null; mp.roomCode = null;
+      mp.connected = false; mp.codeInput = ""; mp.status = "";
+      player2 = null; remotePlayer = null;
+      p2Input = { mx: 0, my: 0, angle: 0, shoot: false };
+    }
+
+    function initHost() {
+      mp.role = "host";
+      mp.roomCode = String(Math.floor(1000 + Math.random() * 9000));
+      mp.status = "대기 중...";
+      try {
+        mp.peer = new Peer("sangsub-" + mp.roomCode, { debug: 0 });
+        mp.peer.on("open", () => { mp.status = "대기 중..."; });
+        mp.peer.on("error", (err) => { mp.status = "오류: " + (err.type || err); });
+        mp.peer.on("connection", (conn) => {
+          mp.conn = conn;
+          conn.on("open", () => {
+            player2 = { x: 700, y: 450, r: 24, collisionR: 15, hp: 100, stamina: 100, angle: 0, moveX: 0, moveY: 0, isMoving: false, invuln: 0, dodge: 0, shootCooldown: 0 };
+            mp.connected = true;
+            mp.stateTimer = 0;
+            startGame();
+          });
+          conn.on("data", (data) => { if (data && data.type === "input") p2Input = data; });
+          conn.on("close", () => { mp.connected = false; mp.status = "연결 끊김"; });
+        });
+      } catch(e) { mp.status = "PeerJS 오류 - 인터넷 확인"; }
+    }
+
+    function connectClient(code) {
+      mp.status = "연결 중...";
+      try {
+        mp.peer = new Peer({ debug: 0 });
+        mp.peer.on("open", () => {
+          const conn = mp.peer.connect("sangsub-" + code, { reliable: true, serialization: "json" });
+          mp.conn = conn;
+          conn.on("open", () => {
+            mp.connected = true;
+            mp.status = "연결됨! 호스트 대기 중...";
+          });
+          conn.on("data", (data) => { if (data && data.type === "state") applyRemoteState(data); });
+          conn.on("close", () => { mp.connected = false; });
+          conn.on("error", (err) => { mp.status = "연결 오류: " + (err.type || err); });
+        });
+        mp.peer.on("error", (err) => { mp.status = "오류: " + (err.type || err); });
+      } catch(e) { mp.status = "PeerJS 오류 - 인터넷 확인"; }
+    }
+
+    function sendStateToClient() {
+      if (!mp.conn || !mp.connected) return;
+      try {
+        mp.conn.send({
+          type: "state",
+          p1: { x: player.x, y: player.y, angle: player.angle, hp: player.hp, isMoving: player.isMoving },
+          p2: player2 ? { x: player2.x, y: player2.y, angle: player2.angle, hp: player2.hp, isMoving: player2.isMoving } : null,
+          kills, wave, skillEnergy,
+          enemies: enemies.map(e => ({ x: e.x, y: e.y, r: e.r, kind: e.kind, hp: e.hp, maxHp: e.maxHp, fast: !!e.fast })),
+          bullets: bullets.map(b => ({ x: b.x, y: b.y, r: b.r || 5 })),
+          tracers: tracers.map(t => ({ x1: t.x1, y1: t.y1, x2: t.x2, y2: t.y2, life: t.life, maxLife: t.maxLife })),
+        });
+      } catch(e) {}
+    }
+
+    function sendInputToHost() {
+      if (!mp.conn || !mp.connected) return;
+      let mx = 0, my = 0;
+      if (keys.has("KeyW") || keys.has("ArrowUp")) my--;
+      if (keys.has("KeyS") || keys.has("ArrowDown")) my++;
+      if (keys.has("KeyA") || keys.has("ArrowLeft")) mx--;
+      if (keys.has("KeyD") || keys.has("ArrowRight")) mx++;
+      if (isMobile) { mx += mobileControls.moveX; my += mobileControls.moveY; }
+      const mag = Math.hypot(mx, my);
+      if (mag > 0.01) { mx /= mag; my /= mag; } else { mx = 0; my = 0; }
+      const aimTarget = isMobile ? mobileAimWorldTarget() : screenToWorld(mouse.x, mouse.y);
+      const angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
+      const shoot = mouse.down || (isMobile && (mobileControls.aimAtEdge || (mobileControls.shoot && currentWeapon === 0)));
+      try { mp.conn.send({ type: "input", mx, my, angle, shoot }); } catch(e) {}
+    }
+
+    function applyRemoteState(data) {
+      if (!data) return;
+      if (state === "lobby") state = "play";
+      if (data.p1) remotePlayer = data.p1;
+      if (data.p2) {
+        player.x = data.p2.x;
+        player.y = data.p2.y;
+        player.hp = data.p2.hp;
+        player.isMoving = data.p2.isMoving;
+      }
+      kills = data.kills || 0;
+      wave = data.wave || 1;
+      skillEnergy = data.skillEnergy || 0;
+      if (data.enemies) {
+        enemies.length = 0;
+        for (const e of data.enemies) {
+          enemies.push({ x: e.x, y: e.y, r: e.r, kind: e.kind, hp: e.hp, maxHp: e.maxHp, fast: e.fast, wobble: 0, bite: 0, shoot: 0, alert: 5, isMoving: false, speed: 80 });
+        }
+      }
+      if (data.bullets) {
+        bullets.length = 0;
+        for (const b of data.bullets) bullets.push({ x: b.x, y: b.y, r: b.r || 5, vx: 0, vy: 0, life: 1 });
+      }
+      if (data.tracers) {
+        tracers.length = 0;
+        for (const t of data.tracers) tracers.push({ x1: t.x1, y1: t.y1, x2: t.x2, y2: t.y2, life: t.life, maxLife: t.maxLife });
+      }
+    }
+
+    function drawLobby() {
+      const bg = ctx.createLinearGradient(0, 0, 0, height);
+      bg.addColorStop(0, "#050a12");
+      bg.addColorStop(1, "#020608");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "rgba(255,255,255,0.018)";
+      const tile = 64;
+      for (let y = 0; y < height; y += tile)
+        for (let x = 0; x < width; x += tile)
+          if (((x / tile) + (y / tile)) % 2 > 0.5) ctx.fillRect(x, y, tile, tile);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#88ccff";
+      ctx.font = "bold " + Math.round(Math.min(36, width * 0.056)) + "px Arial";
+      ctx.fillText("2인 협동 모드", width / 2, height * 0.19);
+      ctx.fillStyle = "rgba(150,190,230,0.6)";
+      ctx.font = Math.round(Math.min(14, width * 0.024)) + "px Arial";
+      ctx.fillText("Co-op Multiplayer · PeerJS WebRTC", width / 2, height * 0.27);
+      if (!mp.role) {
+        ctx.fillStyle = "rgba(200,220,240,0.65)";
+        ctx.font = Math.round(Math.min(14, width * 0.023)) + "px Arial";
+        ctx.fillText("1P가 HOST를 선택하면 코드가 생성됩니다  |  2P는 JOIN 후 코드 입력", width / 2, height * 0.35);
+        const rects = lobbyButtonRects();
+        drawLobbyBtn(rects.host, "HOST (1P)", "#1a4a2a", "#55ee88");
+        drawLobbyBtn(rects.join, "JOIN (2P)", "#1a2a5a", "#5588ff");
+        drawLobbyBtn(rects.back, "← 메뉴로", "#252525", "#999999");
+      } else if (mp.role === "host") {
+        ctx.fillStyle = "#88ff99";
+        ctx.font = "bold " + Math.round(Math.min(18, width * 0.03)) + "px Arial";
+        ctx.fillText("접속 코드 (상대방에게 알려주세요)", width / 2, height * 0.37);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold " + Math.round(Math.min(88, width * 0.148)) + "px Arial";
+        ctx.fillText(mp.roomCode || "----", width / 2, height * 0.57);
+        const dots = ".".repeat(1 + Math.floor(performance.now() / 500) % 3);
+        ctx.fillStyle = mp.status && mp.status !== "대기 중..." ? "#ffcc44" : "#88aa88";
+        ctx.font = Math.round(Math.min(15, width * 0.025)) + "px Arial";
+        ctx.fillText(mp.status && mp.status !== "대기 중..." ? mp.status : ("2P 연결 대기 중" + dots), width / 2, height * 0.7);
+        const rects = lobbyButtonRects();
+        drawLobbyBtn(rects.back, "← 메뉴로", "#252525", "#999999");
+      } else if (mp.role === "client") {
+        if (mp.connected) {
+          ctx.fillStyle = "#88aaff";
+          ctx.font = "bold " + Math.round(Math.min(22, width * 0.035)) + "px Arial";
+          ctx.fillText("연결됨! 호스트 게임 시작 대기 중...", width / 2, height * 0.46);
+          ctx.fillStyle = "rgba(150,180,230,0.65)";
+          ctx.font = Math.round(Math.min(14, width * 0.023)) + "px Arial";
+          ctx.fillText("1P가 게임을 시작하면 자동으로 입장됩니다", width / 2, height * 0.56);
+        } else {
+          ctx.fillStyle = "#88aaff";
+          ctx.font = "bold " + Math.round(Math.min(18, width * 0.03)) + "px Arial";
+          ctx.fillText("방 코드 입력 (4자리)", width / 2, height * 0.33);
+          const cDigits = ["_","_","_","_"];
+          for (let i = 0; i < mp.codeInput.length && i < 4; i++) cDigits[i] = mp.codeInput[i];
+          const display = cDigits.join("  ");
+          ctx.fillStyle = "white";
+          ctx.font = "bold " + Math.round(Math.min(60, width * 0.1)) + "px monospace";
+          ctx.fillText(display, width / 2, height * 0.5);
+          const padStartY = height * 0.6;
+          const btnSize = Math.min(58, width * 0.1);
+          const padGap = Math.min(16, width * 0.024);
+          const padW = btnSize * 3 + padGap * 2;
+          const padX = width / 2 - padW / 2;
+          const nums = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+          for (let i = 0; i < 12; i++) {
+            if (!nums[i]) continue;
+            const col = i % 3, row = Math.floor(i / 3);
+            const bx = padX + col * (btnSize + padGap);
+            const by = padStartY + row * (btnSize + padGap);
+            drawLobbyBtn({ x: bx, y: by, w: btnSize, h: btnSize }, nums[i], "#1a2248", "#88aaff");
+          }
+          if (mp.status) {
+            ctx.fillStyle = mp.status.includes("오류") || mp.status.includes("error") ? "#ff7755" : "#ffcc44";
+            ctx.font = Math.round(Math.min(13, width * 0.022)) + "px Arial";
+            ctx.fillText(mp.status, width / 2, height * 0.93);
+          }
+          const rects = lobbyButtonRects();
+          drawLobbyBtn(rects.back, "← 메뉴로", "#252525", "#999999");
+        }
+      }
+    }
+
+    function drawLobbyBtn(rect, label, bgColor, fgColor) {
+      ctx.save();
+      ctx.fillStyle = bgColor;
+      ctx.strokeStyle = fgColor;
+      ctx.lineWidth = 2;
+      const { x, y, w, h } = rect;
+      const r = Math.min(10, h * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = fgColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold " + Math.round(Math.min(17, h * 0.42)) + "px Arial";
+      ctx.fillText(label, x + w / 2, y + h / 2);
+      ctx.restore();
+    }
+
+    function drawRemotePlayer(rp, isP2) {
+      if (!rp) return;
+      ctx.save();
+      ctx.translate(rp.x, rp.y);
+      ctx.rotate(rp.angle);
+      ctx.globalAlpha = 0.9;
+      // Armor body
+      ctx.fillStyle = isP2 ? "#1e3a6e" : "#3a1e6e";
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = isP2 ? "#4488cc" : "#8844cc";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      // Shoulder pads
+      for (const side of [-1, 1]) {
+        ctx.fillStyle = isP2 ? "#2a5090" : "#502a90";
+        ctx.beginPath();
+        ctx.ellipse(side * 17, -3, 8, 6, side * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Visor
+      ctx.fillStyle = isP2 ? "rgba(50,180,255,0.85)" : "rgba(180,50,255,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(6, -4, 11, 5, 0.15, 0, Math.PI * 2);
+      ctx.fill();
+      // Gun
+      ctx.fillStyle = isP2 ? "#3a5080" : "#503a80";
+      ctx.fillRect(12, -3, 20, 5);
+      // Label + HP bar (counter-rotated)
+      ctx.rotate(-rp.angle);
+      ctx.fillStyle = isP2 ? "#88ccff" : "#cc88ff";
+      ctx.font = "bold 11px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(isP2 ? "2P" : "1P", 0, -28);
+      if (rp.hp < 100) {
+        const barW = 36, barH = 4;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(-barW / 2, 30, barW, barH);
+        ctx.fillStyle = rp.hp > 50 ? "#44cc66" : rp.hp > 25 ? "#ffaa22" : "#cc3333";
+        ctx.fillRect(-barW / 2, 30, barW * rp.hp / 100, barH);
+      }
+      ctx.restore();
+    }
+
+    // ==================== END MULTIPLAYER ====================
 
     window.__ringedSelfTest = runSelfTests;
 
