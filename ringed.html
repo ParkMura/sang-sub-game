@@ -104,6 +104,7 @@
     };
     let player2 = null;
     let remotePlayer = null;
+    let remotePlayerTarget = null;
     let p2Input = { mx: 0, my: 0, angle: 0, shoot: false };
     const taserBullets = [];
     let shake = 0;
@@ -1608,8 +1609,30 @@
         gameOverTimer += dt;
         return;
       }
-      // 클라이언트 모드: 입력 전송 후 로컬 게임 로직 스킵
+      // 클라이언트 모드: 로컬 예측 이동 + 입력 전송 + 원격 플레이어 보간
       if (mp.role === "client") {
+        // 로컬 이동 예측 (즉각 반응, 서버 보정은 applyRemoteState에서)
+        let mx = 0, my = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) my--;
+        if (keys.has("KeyS") || keys.has("ArrowDown")) my++;
+        if (keys.has("KeyA") || keys.has("ArrowLeft")) mx--;
+        if (keys.has("KeyD") || keys.has("ArrowRight")) mx++;
+        if (isMobile) { mx += mobileControls.moveX; my += mobileControls.moveY; }
+        const cmag = Math.hypot(mx, my);
+        if (cmag > 0.01) { mx /= cmag; my /= cmag; moveCircle(player, mx * 152 * dt, my * 152 * dt); }
+        player.isMoving = cmag > 0.01;
+        // 원격 플레이어(1P/호스트) 부드러운 보간
+        if (remotePlayerTarget) {
+          if (!remotePlayer) remotePlayer = { ...remotePlayerTarget };
+          const lf = Math.min(1, dt * 14);
+          remotePlayer.x += (remotePlayerTarget.x - remotePlayer.x) * lf;
+          remotePlayer.y += (remotePlayerTarget.y - remotePlayer.y) * lf;
+          remotePlayer.angle = remotePlayerTarget.angle;
+          remotePlayer.hp = remotePlayerTarget.hp;
+          remotePlayer.isMoving = remotePlayerTarget.isMoving;
+        }
+        // 적 wobble 애니메이션 (로컬)
+        for (const e of enemies) e.wobble = (e.wobble || 0) + dt * 8;
         const aimTarget = isMobile ? mobileAimWorldTarget() : screenToWorld(mouse.x, mouse.y);
         player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
         updateCamera(dt, aimTarget);
@@ -1698,7 +1721,7 @@
         }
         mp.stateTimer -= dt;
         if (mp.stateTimer <= 0) {
-          mp.stateTimer = 0.05;
+          mp.stateTimer = 0.033;
           sendStateToClient();
         }
       }
@@ -5799,7 +5822,7 @@
       if (mp.peer) { try { mp.peer.destroy(); } catch(e) {} mp.peer = null; }
       mp.role = null; mp.conn = null; mp.roomCode = null;
       mp.connected = false; mp.codeInput = ""; mp.status = "";
-      player2 = null; remotePlayer = null;
+      player2 = null; remotePlayer = null; remotePlayerTarget = null;
       p2Input = { mx: 0, my: 0, angle: 0, shoot: false };
     }
 
@@ -5877,22 +5900,52 @@
 
     function applyRemoteState(data) {
       if (!data) return;
-      if (state === "lobby") state = "play";
-      if (data.p1) remotePlayer = data.p1;
+      // 첫 수신 시 클라이언트 월드 초기화
+      if (state === "lobby" || state === "menu" || state === "intro") {
+        walls.length = 0; doors.length = 0; props.length = 0; fixtures.length = 0;
+        buildFacilityMap();
+        if (data.p2) { player.x = data.p2.x; player.y = data.p2.y; }
+        else { player.x = 700; player.y = 450; }
+        player.hp = 100; player.stamina = 100; player.invuln = 0; player.dodge = 0;
+        camera.zoom = cameraMode === 2 ? 0.81 : 0.9;
+        camera.x = Math.max(0, player.x - width / camera.zoom / 2);
+        camera.y = Math.max(0, player.y - height / camera.zoom / 2);
+        if (isMobile) initMobileAimCursor();
+        state = "play";
+      }
+      // 원격 플레이어(1P) 목표 위치 업데이트 (보간은 update()에서)
+      if (data.p1) remotePlayerTarget = data.p1;
+      // 내 위치(2P) 서버 보정: 큰 차이면 스냅, 작은 차이는 부드럽게
       if (data.p2) {
-        player.x = data.p2.x;
-        player.y = data.p2.y;
+        const ddx = data.p2.x - player.x;
+        const ddy = data.p2.y - player.y;
+        const ddist = Math.hypot(ddx, ddy);
+        if (ddist > 100) {
+          player.x = data.p2.x;
+          player.y = data.p2.y;
+        } else if (ddist > 8) {
+          player.x += ddx * 0.22;
+          player.y += ddy * 0.22;
+        }
         player.hp = data.p2.hp;
-        player.isMoving = data.p2.isMoving;
       }
       kills = data.kills || 0;
       wave = data.wave || 1;
       skillEnergy = data.skillEnergy || 0;
       if (data.enemies) {
-        enemies.length = 0;
-        for (const e of data.enemies) {
-          enemies.push({ x: e.x, y: e.y, r: e.r, kind: e.kind, hp: e.hp, maxHp: e.maxHp, fast: e.fast, wobble: 0, bite: 0, shoot: 0, alert: 5, isMoving: false, speed: 80 });
+        // 기존 적 위치 업데이트 (wobble 보존, 깜빡임 방지)
+        const newEnemies = data.enemies;
+        for (let i = 0; i < newEnemies.length; i++) {
+          const ne = newEnemies[i];
+          if (i < enemies.length) {
+            const oe = enemies[i];
+            oe.x = ne.x; oe.y = ne.y; oe.r = ne.r;
+            oe.kind = ne.kind; oe.hp = ne.hp; oe.maxHp = ne.maxHp; oe.fast = ne.fast;
+          } else {
+            enemies.push({ x: ne.x, y: ne.y, r: ne.r, kind: ne.kind, hp: ne.hp, maxHp: ne.maxHp, fast: ne.fast, wobble: Math.random() * Math.PI * 2, bite: 0, shoot: 0, alert: 5, speed: 80 });
+          }
         }
+        if (enemies.length > newEnemies.length) enemies.splice(newEnemies.length);
       }
       if (data.bullets) {
         bullets.length = 0;
