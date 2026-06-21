@@ -1633,9 +1633,21 @@
         }
         // 적 wobble 애니메이션 (로컬)
         for (const e of enemies) e.wobble = (e.wobble || 0) + dt * 8;
-        const aimTarget = isMobile ? mobileAimWorldTarget() : screenToWorld(mouse.x, mouse.y);
-        player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
-        updateCamera(dt, aimTarget);
+        let cAimTarget;
+        if (isMobile) {
+          if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
+            cAimTarget = mobileAimWorldTarget();
+            player.angle = Math.atan2(cAimTarget.y - player.y, cAimTarget.x - player.x);
+          } else {
+            const cMovMag = Math.hypot(mobileControls.moveX, mobileControls.moveY);
+            if (cMovMag > 0.1) player.angle = Math.atan2(mobileControls.moveY, mobileControls.moveX);
+            cAimTarget = { x: player.x + Math.cos(player.angle) * 200, y: player.y + Math.sin(player.angle) * 200 };
+          }
+        } else {
+          cAimTarget = screenToWorld(mouse.x, mouse.y);
+          player.angle = Math.atan2(cAimTarget.y - player.y, cAimTarget.x - player.x);
+        }
+        updateCamera(dt, cAimTarget);
         sendInputToHost();
         if (isMobile && mobileControls.swap) { currentWeapon = (currentWeapon + 1) % 4; mobileControls.swap = false; }
         return;
@@ -1694,8 +1706,19 @@
       player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
       updateCamera(dt, isMobile ? aimTarget : worldMouse);
       if (isMobile) {
-        aimTarget = mobileAimWorldTarget();
-        player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
+        if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
+          // AIM 조이스틱 조작 중: AIM 방향 우선
+          aimTarget = mobileAimWorldTarget();
+          player.angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
+        } else {
+          // AIM 없음: 이동 방향으로 총구 방향
+          const movMag = Math.hypot(mobileControls.moveX, mobileControls.moveY);
+          if (movMag > 0.1) {
+            player.angle = Math.atan2(mobileControls.moveY, mobileControls.moveX);
+          }
+          // 이동도 없으면 마지막 angle 유지
+          aimTarget = { x: player.x + Math.cos(player.angle) * 200, y: player.y + Math.sin(player.angle) * 200 };
+        }
       }
       updateAimRay(aimTarget);
       // Host: 플레이어2 업데이트
@@ -5892,10 +5915,9 @@
       if (isMobile) { mx += mobileControls.moveX; my += mobileControls.moveY; }
       const mag = Math.hypot(mx, my);
       if (mag > 0.01) { mx /= mag; my /= mag; } else { mx = 0; my = 0; }
-      const aimTarget = isMobile ? mobileAimWorldTarget() : screenToWorld(mouse.x, mouse.y);
-      const angle = Math.atan2(aimTarget.y - player.y, aimTarget.x - player.x);
+      // 전송할 각도는 update()에서 이미 설정된 player.angle 사용
       const shoot = mouse.down || (isMobile && (mobileControls.aimAtEdge || (mobileControls.shoot && currentWeapon === 0)));
-      try { mp.conn.send({ type: "input", mx, my, angle, shoot }); } catch(e) {}
+      try { mp.conn.send({ type: "input", mx, my, angle: player.angle, shoot }); } catch(e) {}
     }
 
     function applyRemoteState(data) {
