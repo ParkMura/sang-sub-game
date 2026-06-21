@@ -125,6 +125,9 @@
       aimY: 0,
       aimScreenX: 0,
       aimScreenY: 0,
+      aimDirX: 1,
+      aimDirY: 0,
+      aimDeflection: 0,
       aimTouchX: 0,
       aimTouchY: 0,
       aimAnchorX: 0,
@@ -2132,10 +2135,7 @@
     }
 
     function mobileAimWorldTarget() {
-      if (!mobileControls.aimScreenX && !mobileControls.aimScreenY) {
-        initMobileAimCursor();
-      }
-      syncMobileAimWorld();
+      calcAimScreenPos();
       return screenToWorld(mobileControls.aimScreenX, mobileControls.aimScreenY);
     }
 
@@ -3706,7 +3706,7 @@
     }
 
     function drawMobileAimCursor() {
-      if (!mobileControls.aimScreenX && !mobileControls.aimScreenY) initMobileAimCursor();
+      calcAimScreenPos();
       const x = mobileControls.aimScreenX;
       const y = mobileControls.aimScreenY;
       ctx.save();
@@ -4393,6 +4393,7 @@
         mobileControls.aimKnobY = 0;
         mobileControls.aimTouchX = 0;
         mobileControls.aimTouchY = 0;
+        mobileControls.aimDeflection = 0;
       }
     }
 
@@ -4427,7 +4428,6 @@
 
     function updateMobileAttackStick(x, y, force) {
       const stick = mobileButtonRects().attack;
-      // 첫 터치 위치(anchor)에서 현재 드래그 거리/방향으로 계산 → 터치 시작 시 벌어짐 없음
       const anchorDx = x - mobileControls.aimAnchorX;
       const anchorDy = y - mobileControls.aimAnchorY;
       const dragDist = Math.hypot(anchorDx, anchorDy);
@@ -4438,18 +4438,25 @@
 
       mobileControls.aimKnobX = dirX * Math.min(maxDrag * 0.72, dragDist);
       mobileControls.aimKnobY = dirY * Math.min(maxDrag * 0.72, dragDist);
-
-      // 조준점: 캐릭터 위치에서 드래그 방향으로 deflection만큼 뻗음
-      const maxAimDist = Math.min(width, height) * 0.38;
-      const px = screenX(player.x);
-      const py = screenY(player.y);
-      mobileControls.aimScreenX = clamp(px + dirX * deflection * maxAimDist, 18, width - 18);
-      mobileControls.aimScreenY = clamp(py + dirY * deflection * maxAimDist, 18, height - 18);
-      syncMobileAimWorld();
+      // 방향/세기만 저장 → 렌더링 시 현재 캐릭터 위치 기준으로 재계산
+      mobileControls.aimDirX = dirX;
+      mobileControls.aimDirY = dirY;
+      mobileControls.aimDeflection = deflection;
+      calcAimScreenPos();
 
       mobileControls.aimTouchX = x;
       mobileControls.aimTouchY = y;
       mobileControls.aimAtEdge = (dragDist >= maxDrag * 0.72);
+    }
+
+    function calcAimScreenPos() {
+      const maxAimDist = Math.min(width, height) * 0.38;
+      const px = screenX(player.x);
+      const py = screenY(player.y);
+      const d = mobileControls.aimDeflection;
+      mobileControls.aimScreenX = clamp(px + mobileControls.aimDirX * d * maxAimDist, 18, width - 18);
+      mobileControls.aimScreenY = clamp(py + mobileControls.aimDirY * d * maxAimDist, 18, height - 18);
+      syncMobileAimWorld();
     }
 
     function mobileActionAt(x, y) {
