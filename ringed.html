@@ -2135,11 +2135,13 @@
     }
 
     function mobileAimWorldTarget() {
-      if (mobileControls.shoot) {
-        calcAimScreenPos();
-        return screenToWorld(mobileControls.aimScreenX, mobileControls.aimScreenY);
+      if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
+        const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
+        return {
+          x: player.x + mobileControls.aimDirX * mobileControls.aimDeflection * maxWorldRadius,
+          y: player.y + mobileControls.aimDirY * mobileControls.aimDeflection * maxWorldRadius
+        };
       }
-      // 비터치 시: 캐릭터 위치 반환 (오토에임은 updateMobileAim이 aimX/Y로 따로 처리)
       return { x: player.x, y: player.y };
     }
 
@@ -2909,11 +2911,11 @@
       ctx.translate(-camera.x, -camera.y);
       drawBlockingPropOverlays();
       for (const b of bombs) drawBomb(b);
+      if (isMobile) drawMobileAimCursorWorld();
       ctx.restore();
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       drawRaidWarningOverlay();
       drawHud();
-      if (isMobile) drawMobileAimCursor();
       if (isMobile) drawMobileControls();
     }
 
@@ -3734,6 +3736,41 @@
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawMobileAimCursorWorld() {
+      // 월드 좌표계에 과녁 그리기 — 캐릭터와 동일한 카메라 변환 사용하여 항상 정확한 위치
+      let wx, wy;
+      if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
+        const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
+        wx = player.x + mobileControls.aimDirX * mobileControls.aimDeflection * maxWorldRadius;
+        wy = player.y + mobileControls.aimDirY * mobileControls.aimDeflection * maxWorldRadius;
+      } else {
+        wx = player.x;
+        wy = player.y;
+      }
+      const z = camera.zoom;
+      const lineLen = 12 / z;
+      const gap = 4 / z;
+      const r = 5.5 / z;
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = mobileControls.shoot ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.58)";
+      ctx.lineWidth = (mobileControls.shoot ? 2.2 : 1.6) / z;
+      ctx.beginPath();
+      ctx.moveTo(wx - lineLen, wy);
+      ctx.lineTo(wx - gap, wy);
+      ctx.moveTo(wx + gap, wy);
+      ctx.lineTo(wx + lineLen, wy);
+      ctx.moveTo(wx, wy - lineLen);
+      ctx.lineTo(wx, wy - gap);
+      ctx.moveTo(wx, wy + gap);
+      ctx.lineTo(wx, wy + lineLen);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(wx, wy, r, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
