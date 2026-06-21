@@ -2135,8 +2135,12 @@
     }
 
     function mobileAimWorldTarget() {
-      calcAimScreenPos();
-      return screenToWorld(mobileControls.aimScreenX, mobileControls.aimScreenY);
+      if (mobileControls.shoot) {
+        calcAimScreenPos();
+        return screenToWorld(mobileControls.aimScreenX, mobileControls.aimScreenY);
+      }
+      // 비터치 시: 캐릭터 위치 반환 (오토에임은 updateMobileAim이 aimX/Y로 따로 처리)
+      return { x: player.x, y: player.y };
     }
 
     function initMobileAimCursor() {
@@ -3706,9 +3710,14 @@
     }
 
     function drawMobileAimCursor() {
-      calcAimScreenPos();
-      const x = mobileControls.aimScreenX;
-      const y = mobileControls.aimScreenY;
+      // 비터치 시 항상 캐릭터 정중앙, 터치 시 조이스틱 방향으로 계산
+      if (mobileControls.shoot) calcAimScreenPos();
+      const x = mobileControls.shoot
+        ? mobileControls.aimScreenX
+        : clamp(screenX(player.x), 18, width - 18);
+      const y = mobileControls.shoot
+        ? mobileControls.aimScreenY
+        : clamp(screenY(player.y), 18, height - 18);
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = mobileControls.shoot ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.58)";
@@ -4357,7 +4366,7 @@
           mobileControls.aimAnchorX = p.x;
           mobileControls.aimAnchorY = p.y;
           mobileControls.aimAtEdge = false;
-          initMobileAimCursor();
+          mobileControls.aimDeflection = 0;
           updateMobileAttackStick(p.x, p.y, true);
         }
       }
