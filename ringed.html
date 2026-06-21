@@ -185,7 +185,8 @@
       moveY: 0,
       isMoving: false,
       invuln: 0,
-      dodge: 0
+      dodge: 0,
+      walkTime: 0
     };
     const bullets = [];
     const bombs = [];
@@ -792,6 +793,7 @@
       player.isMoving = false;
       player.invuln = 0;
       player.dodge = 0;
+      player.walkTime = 0;
       bullets.length = 0;
       bombs.length = 0;
       tracers.length = 0;
@@ -1621,6 +1623,7 @@
         const cmag = Math.hypot(mx, my);
         if (cmag > 0.01) { mx /= cmag; my /= cmag; moveCircle(player, mx * 152 * dt, my * 152 * dt); }
         player.isMoving = cmag > 0.01;
+        if (player.isMoving) player.walkTime += dt; else player.walkTime *= 0.88;
         // 원격 플레이어(1P/호스트) 부드러운 보간
         if (remotePlayerTarget) {
           if (!remotePlayer) remotePlayer = { ...remotePlayerTarget };
@@ -1630,6 +1633,8 @@
           remotePlayer.angle = remotePlayerTarget.angle;
           remotePlayer.hp = remotePlayerTarget.hp;
           remotePlayer.isMoving = remotePlayerTarget.isMoving;
+          if (remotePlayer.isMoving) remotePlayer.walkTime = (remotePlayer.walkTime || 0) + dt;
+          else remotePlayer.walkTime = (remotePlayer.walkTime || 0) * 0.88;
         }
         // 적 wobble 애니메이션 (로컬)
         for (const e of enemies) e.wobble = (e.wobble || 0) + dt * 8;
@@ -1698,6 +1703,7 @@
       player.moveX = mx;
       player.moveY = my;
       player.isMoving = Math.hypot(player.x - beforePlayerX, player.y - beforePlayerY) > 0.35;
+      if (player.isMoving) player.walkTime += dt; else player.walkTime *= 0.88;
       updateDoors(dt);
       updateIdleRaid(dt, Math.hypot(player.x - beforePlayerX, player.y - beforePlayerY), mouse.down || mouse.right || keys.has("KeyQ"));
 
@@ -1727,8 +1733,10 @@
         if (m2 > 0.01) {
           moveCircle(player2, p2Input.mx * 152 * dt, p2Input.my * 152 * dt);
           player2.isMoving = true;
+          player2.walkTime = (player2.walkTime || 0) + dt;
         } else {
           player2.isMoving = false;
+          player2.walkTime = (player2.walkTime || 0) * 0.88;
         }
         player2.angle = p2Input.angle;
         player2.invuln = Math.max(0, (player2.invuln || 0) - dt);
@@ -3388,7 +3396,7 @@
       ctx.translate(player.x, player.y);
       ctx.rotate(player.angle);
       if (player.invuln > 0) ctx.globalAlpha = 0.65 + Math.sin(performance.now() * 0.04) * 0.25;
-      drawMarineSoldier(24);
+      drawMarineSoldier(24, player.walkTime, player.isMoving);
       ctx.restore();
     }
 
@@ -3538,45 +3546,55 @@
       ctx.restore();
     }
 
-    function drawMarineSoldier(r) {
+    function drawMarineSoldier(r, walkTime, isWalking, colors) {
       // 스타크래프트 마린 (CMC 파워 슈트) — 탑다운 뷰
+      const wt = walkTime || 0;
+      const freq = 9; // 걷기 주기 rad/s
+      const swing  = isWalking ? Math.sin(wt * freq) : 0;        // 팔 스윙 (-1 ~ 1)
+      const bob    = isWalking ? Math.abs(Math.sin(wt * freq)) : 0; // 바운스 (0 ~ 1)
+      const sway   = isWalking ? Math.sin(wt * freq * 2) : 0;    // 상하 흔들림 (좌우 발걸음)
+
+      // 그림자 (이동 시 약간 늘어남)
       ctx.save();
       ctx.globalAlpha = 0.32;
       ctx.fillStyle = "#000";
       ctx.beginPath();
-      ctx.ellipse(-r * 0.14, r * 0.12, r * 0.84, r * 0.5, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(-r * 0.14, r * 0.12, r * (0.84 + bob * 0.07), r * (0.5 + bob * 0.04), 0.1, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+
+      // 발걸음에 맞춰 몸 상하 흔들림
+      ctx.translate(0, sway * 0.9);
 
       const sc = 0.82;
       ctx.scale(sc, sc);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
-      const armorDark  = "#2b3320";
-      const armorMid   = "#3e4f2a";
-      const armorLight = "#5a7038";
+      const armorDark  = (colors && colors.dark)  || "#2b3320";
+      const armorMid   = (colors && colors.mid)   || "#3e4f2a";
+      const armorLight = (colors && colors.light) || "#5a7038";
       const black      = "rgba(0,0,0,0.88)";
-      const visorAmber = "rgba(245,165,35,0.94)";
+      const visorAmber = (colors && colors.visor) || "rgba(245,165,35,0.94)";
 
-      // 뒤쪽 팔 (왼쪽)
+      // 뒤쪽 팔 — 걸을 때 전후로 스윙
       ctx.strokeStyle = armorDark;
       ctx.lineWidth = r * 0.24;
       ctx.beginPath();
       ctx.moveTo(-r * 0.3, -r * 0.22);
-      ctx.lineTo(-r * 0.82, -r * 0.52);
+      ctx.lineTo(-r * (0.82 - swing * 0.3), -r * 0.52);
       ctx.moveTo(-r * 0.3,  r * 0.22);
-      ctx.lineTo(-r * 0.82,  r * 0.52);
+      ctx.lineTo(-r * (0.82 + swing * 0.3),  r * 0.52);
       ctx.stroke();
 
-      // 앞쪽 팔 (오른쪽)
+      // 앞쪽 팔 — 반대 위상으로 스윙
       ctx.strokeStyle = armorMid;
       ctx.lineWidth = r * 0.21;
       ctx.beginPath();
       ctx.moveTo(r * 0.04, -r * 0.26);
-      ctx.lineTo(r * 0.5,  -r * 0.42);
+      ctx.lineTo(r * (0.5 + swing * 0.14), -r * 0.42);
       ctx.moveTo(r * 0.04,  r * 0.24);
-      ctx.lineTo(r * 0.5,   r * 0.4);
+      ctx.lineTo(r * (0.5 - swing * 0.14),  r * 0.4);
       ctx.stroke();
 
       // 몸통 (두꺼운 파워 슈트)
@@ -6092,45 +6110,26 @@
       if (!rp) return;
       ctx.save();
       ctx.translate(rp.x, rp.y);
-      ctx.rotate(rp.angle);
-      ctx.globalAlpha = 0.9;
-      // Armor body
-      ctx.fillStyle = isP2 ? "#1e3a6e" : "#3a1e6e";
-      ctx.beginPath();
-      ctx.arc(0, 0, 24, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = isP2 ? "#4488cc" : "#8844cc";
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      // Shoulder pads
-      for (const side of [-1, 1]) {
-        ctx.fillStyle = isP2 ? "#2a5090" : "#502a90";
-        ctx.beginPath();
-        ctx.ellipse(side * 17, -3, 8, 6, side * 0.4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // Visor
-      ctx.fillStyle = isP2 ? "rgba(50,180,255,0.85)" : "rgba(180,50,255,0.85)";
-      ctx.beginPath();
-      ctx.ellipse(6, -4, 11, 5, 0.15, 0, Math.PI * 2);
-      ctx.fill();
-      // Gun
-      ctx.fillStyle = isP2 ? "#3a5080" : "#503a80";
-      ctx.fillRect(12, -3, 20, 5);
-      // Label + HP bar (counter-rotated)
-      ctx.rotate(-rp.angle);
+      // 라벨 + HP바 (화면 기준, 회전 없음)
       ctx.fillStyle = isP2 ? "#88ccff" : "#cc88ff";
       ctx.font = "bold 11px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillText(isP2 ? "2P" : "1P", 0, -28);
+      ctx.fillText(isP2 ? "2P" : "1P", 0, -30);
       if (rp.hp < 100) {
         const barW = 36, barH = 4;
         ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(-barW / 2, 30, barW, barH);
+        ctx.fillRect(-barW / 2, 32, barW, barH);
         ctx.fillStyle = rp.hp > 50 ? "#44cc66" : rp.hp > 25 ? "#ffaa22" : "#cc3333";
-        ctx.fillRect(-barW / 2, 30, barW * rp.hp / 100, barH);
+        ctx.fillRect(-barW / 2, 32, barW * rp.hp / 100, barH);
       }
+      // 마린 모델 (팀 색상)
+      ctx.rotate(rp.angle);
+      ctx.globalAlpha = 0.92;
+      const rpColors = isP2
+        ? { dark: "#122040", mid: "#1a3060", light: "#2a5090", visor: "rgba(60,160,255,0.92)" }
+        : { dark: "#260e40", mid: "#3a1560", light: "#5a2090", visor: "rgba(180,60,255,0.92)" };
+      drawMarineSoldier(24, rp.walkTime || 0, rp.isMoving, rpColors);
       ctx.restore();
     }
 
