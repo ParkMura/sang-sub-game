@@ -3238,7 +3238,7 @@
       ctx.translate(player.x, player.y);
       ctx.rotate(player.angle);
       if (player.invuln > 0) ctx.globalAlpha = 0.65 + Math.sin(performance.now() * 0.04) * 0.25;
-      drawTacticalHuman(24, true);
+      drawMarineSoldier(24);
       ctx.restore();
     }
 
@@ -3259,7 +3259,7 @@
         ctx.translate(0, -height);
       }
       ctx.rotate(Math.atan2(player.y - e.y, player.x - e.x));
-      drawTacticalHuman(e.r, false, e.kind !== "melee", e.kind);
+      drawStormtrooper(e.r, e.kind !== "melee", e.kind);
       if (e.raidAggressive) drawRaidUnitOverlay(e);
       ctx.beginPath();
       ctx.arc(0, 0, e.r - 1, 0, Math.PI * 2);
@@ -3386,6 +3386,252 @@
       ctx.ellipse(b.x, b.y + 8, 16 * (1 - t * 0.2), 8, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+
+    function drawMarineSoldier(r) {
+      // 스타크래프트 마린 (CMC 파워 슈트) — 탑다운 뷰
+      ctx.save();
+      ctx.globalAlpha = 0.32;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.14, r * 0.12, r * 0.84, r * 0.5, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      const sc = 0.82;
+      ctx.scale(sc, sc);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      const armorDark  = "#2b3320";
+      const armorMid   = "#3e4f2a";
+      const armorLight = "#5a7038";
+      const black      = "rgba(0,0,0,0.88)";
+      const visorAmber = "rgba(245,165,35,0.94)";
+
+      // 뒤쪽 팔 (왼쪽)
+      ctx.strokeStyle = armorDark;
+      ctx.lineWidth = r * 0.24;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.3, -r * 0.22);
+      ctx.lineTo(-r * 0.82, -r * 0.52);
+      ctx.moveTo(-r * 0.3,  r * 0.22);
+      ctx.lineTo(-r * 0.82,  r * 0.52);
+      ctx.stroke();
+
+      // 앞쪽 팔 (오른쪽)
+      ctx.strokeStyle = armorMid;
+      ctx.lineWidth = r * 0.21;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.04, -r * 0.26);
+      ctx.lineTo(r * 0.5,  -r * 0.42);
+      ctx.moveTo(r * 0.04,  r * 0.24);
+      ctx.lineTo(r * 0.5,   r * 0.4);
+      ctx.stroke();
+
+      // 몸통 (두꺼운 파워 슈트)
+      ctx.fillStyle = armorMid;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.05, 0, r * 0.52, r * 0.46, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // 가슴 플레이트 (밝은 올리브)
+      ctx.fillStyle = armorLight;
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.ellipse(r * 0.02, 0, r * 0.3, r * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 어깨 패드 (위아래)
+      ctx.fillStyle = armorLight;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.07, -r * 0.43, r * 0.23, r * 0.15, -0.28, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.07,  r * 0.43, r * 0.23, r * 0.15,  0.28, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      // 무기
+      ctx.save();
+      ctx.translate(r * 0.42, 0);
+      drawWeapon(true, "shooter");
+      ctx.restore();
+
+      // 헬멧 (크고 둥근 마린 헬멧)
+      const hx = r * 0.38, hr = r * 0.38;
+      ctx.fillStyle = armorMid;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(hx, 0, hr, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      // 헬멧 위 밝은 패널
+      ctx.fillStyle = armorLight;
+      ctx.beginPath();
+      ctx.arc(hx - r * 0.04, -r * 0.04, hr * 0.66, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 앰버 T자 바이저 (앞쪽 오른편 방향)
+      ctx.fillStyle = visorAmber;
+      ctx.strokeStyle = "rgba(180,90,10,0.45)";
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(hx, -hr * 0.3);
+      ctx.arc(hx, 0, hr * 0.8, -Math.PI * 0.32, Math.PI * 0.32);
+      ctx.lineTo(hx, hr * 0.3);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // 바이저 발광
+      ctx.fillStyle = "rgba(255,210,60,0.22)";
+      ctx.beginPath();
+      ctx.arc(hx + r * 0.1, 0, hr * 0.46, -Math.PI * 0.28, Math.PI * 0.28);
+      ctx.lineTo(hx, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // 헬멧 뒤 배기구
+      ctx.fillStyle = armorDark;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(hx - hr * 0.92, 0, r * 0.09, r * 0.19, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+
+    function drawStormtrooper(r, hasGun = true, weaponKind = "shooter") {
+      // 스타워즈 스톰트루퍼 (흰색 갑옷) — 탑다운 뷰
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.14, r * 0.12, r * 0.84, r * 0.5, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      const sc = 0.82;
+      ctx.scale(sc, sc);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      const white     = "#dde1e8";
+      const offWhite  = "#c8cdd5";
+      const darkGray  = "#6a707a";
+      const black     = "rgba(0,0,0,0.9)";
+      const blackLine = "rgba(0,0,0,0.52)";
+      const visorBlk  = "rgba(6,6,8,0.97)";
+
+      // 뒤쪽 팔
+      ctx.strokeStyle = darkGray;
+      ctx.lineWidth = r * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.3, -r * 0.22);
+      ctx.lineTo(-r * 0.82, -r * 0.5);
+      ctx.moveTo(-r * 0.3,  r * 0.22);
+      ctx.lineTo(-r * 0.82,  r * 0.5);
+      ctx.stroke();
+
+      // 앞쪽 팔 (흰색 갑옷)
+      ctx.strokeStyle = white;
+      ctx.lineWidth = r * 0.21;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.04, -r * 0.26);
+      ctx.lineTo(r * 0.5,  -r * 0.42);
+      ctx.moveTo(r * 0.04,  r * 0.24);
+      ctx.lineTo(r * 0.5,   r * 0.4);
+      ctx.stroke();
+
+      // 몸통 (흰 갑옷)
+      ctx.fillStyle = white;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.05, 0, r * 0.52, r * 0.46, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      // 갑옷 검은 구분선
+      ctx.strokeStyle = blackLine;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.06, -r * 0.32);
+      ctx.lineTo(r * 0.06,  r * 0.32);
+      ctx.moveTo(-r * 0.22, -r * 0.14);
+      ctx.lineTo( r * 0.22, -r * 0.14);
+      ctx.moveTo(-r * 0.22,  r * 0.14);
+      ctx.lineTo( r * 0.22,  r * 0.14);
+      ctx.stroke();
+
+      // 어깨 패드 (흰색)
+      ctx.fillStyle = offWhite;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.07, -r * 0.43, r * 0.23, r * 0.15, -0.28, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.07,  r * 0.43, r * 0.23, r * 0.15,  0.28, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      // 임페리얼 블라스터 (E-11)
+      if (hasGun && weaponKind !== "melee") {
+        ctx.save();
+        ctx.translate(r * 0.42, 0);
+        ctx.fillStyle = "#4a4f58";
+        ctx.strokeStyle = black;
+        ctx.lineWidth = 1.3;
+        ctx.fillRect(-3, -4, 26, 8);
+        ctx.strokeRect(-3, -4, 26, 8);
+        ctx.fillRect(22, -3, 13, 6);
+        ctx.strokeRect(22, -3, 13, 6);
+        ctx.fillStyle = "#333740";
+        ctx.fillRect(1, -7, 11, 4);
+        ctx.strokeRect(1, -7, 11, 4);
+        ctx.beginPath();
+        ctx.moveTo(7, 4);
+        ctx.lineTo(9, 12);
+        ctx.lineTo(15, 12);
+        ctx.lineTo(13, 4);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.restore();
+      }
+
+      // 헬멧 (스톰트루퍼 돔)
+      const hx = r * 0.38, hr = r * 0.38;
+      ctx.fillStyle = white;
+      ctx.strokeStyle = black;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(hx, 0, hr, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      // 검은 T자 바이저 (스톰트루퍼 시그니처)
+      // 눈 부분 (가로 밴드)
+      ctx.fillStyle = visorBlk;
+      ctx.beginPath();
+      ctx.arc(hx, -hr * 0.08, hr * 0.76, -Math.PI * 0.44, Math.PI * 0.44);
+      ctx.arc(hx, -hr * 0.08, hr * 0.44, Math.PI * 0.44, -Math.PI * 0.44, true);
+      ctx.closePath();
+      ctx.fill();
+
+      // 입/코 부분 (T자 세로 슬롯)
+      ctx.beginPath();
+      ctx.arc(hx, hr * 0.24, hr * 0.56, -Math.PI * 0.27, Math.PI * 0.27);
+      ctx.arc(hx, hr * 0.24, hr * 0.3, Math.PI * 0.27, -Math.PI * 0.27, true);
+      ctx.closePath();
+      ctx.fill();
+
+      // 헬멧 하이라이트 (흰색 광택)
+      ctx.fillStyle = "rgba(255,255,255,0.42)";
+      ctx.beginPath();
+      ctx.arc(hx - r * 0.05, -r * 0.1, hr * 0.34, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     function drawTacticalHuman(r, isPlayer, hasGun = true, weaponKind = "shooter") {
