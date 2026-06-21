@@ -4426,39 +4426,32 @@
     }
 
     function updateMobileAttackStick(x, y, force) {
-      const hadTouch = mobileControls.aimTouchX || mobileControls.aimTouchY;
-      const lastX = hadTouch ? mobileControls.aimTouchX : x;
-      const lastY = hadTouch ? mobileControls.aimTouchY : y;
-      const dragX = x - lastX;
-      const dragY = y - lastY;
-      if (!force && Math.hypot(dragX, dragY) < 2.5) return;
       const stick = mobileButtonRects().attack;
       const dx = x - stick.x;
       const dy = y - stick.y;
       const d = Math.hypot(dx, dy) || 1;
-      const limit = stick.r * 0.72;
-      const amount = Math.min(limit, d);
-      const ax = (dx / d) * amount;
-      const ay = (dy / d) * amount;
-      mobileControls.aimKnobX = ax;
-      mobileControls.aimKnobY = ay;
-      const dirX = Math.abs(dx) + Math.abs(dy) < 8 ? Math.cos(player.angle || 0) : dx / d;
-      const dirY = Math.abs(dx) + Math.abs(dy) < 8 ? Math.sin(player.angle || 0) : dy / d;
-      if (!mobileControls.aimScreenX && !mobileControls.aimScreenY) {
-        initMobileAimCursor();
-      } else if (hadTouch) {
-        const sensitivity = 2.15;
-        mobileControls.aimScreenX = clamp(mobileControls.aimScreenX + dragX * sensitivity, 18, width - 18);
-        mobileControls.aimScreenY = clamp(mobileControls.aimScreenY + dragY * sensitivity, 18, height - 18);
-        syncMobileAimWorld();
-      }
+      const limit = stick.r;
+      const deflection = Math.min(1, d / limit);
+      const dirX = d < 8 ? Math.cos(player.angle || 0) : dx / d;
+      const dirY = d < 8 ? Math.sin(player.angle || 0) : dy / d;
+
+      mobileControls.aimKnobX = dirX * Math.min(limit * 0.72, d);
+      mobileControls.aimKnobY = dirY * Math.min(limit * 0.72, d);
+
+      // 조준점은 항상 캐릭터 위치 기준으로 조이스틱 방향으로 뻗음
+      const maxAimDist = Math.min(width, height) * 0.38;
+      const px = screenX(player.x);
+      const py = screenY(player.y);
+      mobileControls.aimScreenX = clamp(px + dirX * deflection * maxAimDist, 18, width - 18);
+      mobileControls.aimScreenY = clamp(py + dirY * deflection * maxAimDist, 18, height - 18);
+      syncMobileAimWorld();
+
       mobileControls.aimTouchX = x;
       mobileControls.aimTouchY = y;
       // 처음 손가락 댄 위치에서 얼마나 밀었는지로 발사 판정
       const anchorDx = x - mobileControls.aimAnchorX;
       const anchorDy = y - mobileControls.aimAnchorY;
-      const dragFromAnchor = Math.hypot(anchorDx, anchorDy);
-      mobileControls.aimAtEdge = (dragFromAnchor >= stick.r * 0.72);
+      mobileControls.aimAtEdge = (Math.hypot(anchorDx, anchorDy) >= stick.r * 0.72);
     }
 
     function mobileActionAt(x, y) {
