@@ -132,6 +132,37 @@
     let lastIdleY = 0;
     let specialForcesEnabled = false;
     let idleRaidWarned = false;
+    // ─── 캐릭터 시스템 ────────────────────────────────────────
+    const CHAR_DEFS = [
+      { id:0, name:"HAWK",  sub:"특수부대원",  gender:"male",   build:"normal",
+        speedMult:1.0,  hpMult:1.0,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
+        col:{ body:"#1a2e7a", light:"#2a40a0", visor:"#e87030", shoulder:"#c89010" } },
+      { id:1, name:"BULL",  sub:"중장갑 전사", gender:"male",   build:"heavy",
+        speedMult:0.82, hpMult:1.35,  primaryW:1, secondaryW:4, bombType:"c4",      skillType:"mortar",
+        col:{ body:"#281808", light:"#4a2a10", visor:"#ff4400", shoulder:"#7a5008" } },
+      { id:2, name:"VIPER", sub:"정예 저격수", gender:"male",   build:"slim",
+        speedMult:1.22, hpMult:0.75,  primaryW:5, secondaryW:6, bombType:"grenade", skillType:"missile",
+        col:{ body:"#102818", light:"#1e4020", visor:"#00ff88", shoulder:"#204820" } },
+      { id:3, name:"MEDIC", sub:"전투 의무병", gender:"female", build:"slim",
+        speedMult:1.1,  hpMult:0.8,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"stun_aura",
+        col:{ body:"#3a0a2a", light:"#600a40", visor:"#ff88ff", shoulder:"#c04080" } },
+    ];
+    let p1CharIdx = 0, p2CharIdx = 0;
+    let charSelectPhase = 0; // 0=P1 고르는 중, 1=P2 고르는 중 (멀티플레이시)
+    let playerChar = CHAR_DEFS[0];
+    let rageActive = false, rageTimer = 0, ragePrevHp = 100;
+    let healAuraTimer = 0;
+    const c4List = [];
+    let c4AimShakeCount = 0, c4AimShakePrev = 0;
+    const mortarShells = [];
+    let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
+    const SNIPER_MAX_AMMO = 1, SNIPER_RELOAD_TIME = 2.5;
+    const PISTOL_MAX_AMMO = 15, PISTOL_RELOAD_TIME = 1.5;
+    const HEAVY_PISTOL_MAX_AMMO = 5, HEAVY_PISTOL_RELOAD_TIME = 1.5;
+    let sniperAmmo = SNIPER_MAX_AMMO, sniperReloadTimer = 0;
+    let pistolAmmo = PISTOL_MAX_AMMO, pistolReloadTimer = 0;
+    let heavyPistolAmmo = HEAVY_PISTOL_MAX_AMMO, heavyPistolReloadTimer = 0;
+    let sniperCharging = false, sniperChargeDirX = 0, sniperChargeDirY = 0;
     let raidWarningActive = false;
     let raidWarningPulse = 0;
     let raidAlarmTimer = 0;
@@ -261,13 +292,15 @@
         startIntroSequence();
         return;
       }
-      if (event.code === "Enter" && state === "menu") startGame();
+      if (event.code === "Enter" && state === "menu") { charSelectPhase = 0; p1CharIdx = 0; state = "charselect"; }
       if (event.code === "Escape" && state === "play") goMainMenu();
       if (event.code === "Digit1") cameraMode = 1;
       if (event.code === "Digit2") cameraMode = 2;
       if (event.code === "Tab" && state === "play") {
         event.preventDefault();
-        currentWeapon = (currentWeapon + 1) % 4;
+        const _weps = [playerChar.primaryW, playerChar.secondaryW];
+        const _idx = _weps.indexOf(currentWeapon);
+        currentWeapon = _weps[(_idx + 1) % _weps.length];
       }
     });
     window.addEventListener("keyup", (event) => keys.delete(event.code));
@@ -287,6 +320,7 @@
         return;
       }
       if (state === "menu" && handleMenuClick(mouse.x, mouse.y)) return;
+      if (state === "charselect") { handleCharSelectClick(mouse.x, mouse.y); return; }
       if (state === "lobby" && handleLobbyClick(mouse.x, mouse.y)) return;
       if (state === "maptool") {
         handleMapToolMouseDown(event);
@@ -298,7 +332,8 @@
       if (handleCameraButtonClick(mouse.x, mouse.y)) return;
       if (event.button === 2) mouse.right = true;
       else mouse.down = true;
-      if (state === "menu" || state === "dead") startGame();
+      if (state === "menu") { charSelectPhase = 0; p1CharIdx = 0; state = "charselect"; return; }
+      if (state === "dead") startGame();
     });
     window.addEventListener("mouseup", (event) => {
       if (state === "maptool") {
@@ -802,7 +837,7 @@
     function resetWorld() {
       player.x = 330;
       player.y = 500;
-      player.hp = 100;
+      player.hp = Math.round(100 * playerChar.hpMult);
       player.stamina = 100;
       player.angle = 0;
       player.targetAngle = 0;
@@ -836,11 +871,20 @@
       skillEnergy = 0;
       skillActive = false;
       skillTimer = 0;
-      currentWeapon = 0;
       stationaryTimer = 0;
       autoGatling = false;
       autoGatlingCooldown = 0;
       recoilAmt = 0;
+      rageActive = false; rageTimer = 0; ragePrevHp = player.hp;
+      healAuraTimer = 0;
+      c4List.length = 0; c4AimShakeCount = 0;
+      mortarShells.length = 0;
+      missileCharging = false; missileHoldTimer = 0;
+      sniperAmmo = SNIPER_MAX_AMMO; sniperReloadTimer = 0;
+      pistolAmmo = PISTOL_MAX_AMMO; pistolReloadTimer = 0;
+      heavyPistolAmmo = HEAVY_PISTOL_MAX_AMMO; heavyPistolReloadTimer = 0;
+      sniperCharging = false;
+      currentWeapon = playerChar.primaryW;
       rifleAmmo = RIFLE_MAX_AMMO; rifleReloadTimer = 0;
       shotgunAmmo = SHOTGUN_MAX_AMMO; shotgunReloadTimer = 0;
       taserAmmo = TASER_MAX_AMMO; taserReloadTimer = 0;
@@ -1282,7 +1326,7 @@
         playSfx("playerGun", 0.94 + Math.random() * 0.08);
         const hit = raycastShot(sx, sy, dx, dy, 980);
         tracers.push({ x1: sx, y1: sy, x2: hit.x, y2: hit.y, life: 0.09, maxLife: 0.09 });
-        if (hit.enemy) { hit.enemy.hp -= 44; burst(hit.x, hit.y, "#9f2a24", 5); skillEnergy = Math.min(1, skillEnergy + 0.125); }
+        if (hit.enemy) { hit.enemy.hp -= Math.round(44 * (playerChar.id === 3 ? 0.8 : 1) * (rageActive ? 2 : 1)); burst(hit.x, hit.y, "#9f2a24", 5); skillEnergy = Math.min(1, skillEnergy + 0.125); }
         else if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 5); hitWallCorner(hit.x, hit.y, 0.25, 28); }
         flashes.push({ x: sx + dx * 18, y: sy + dy * 18, angle: player.angle, life: 0.075, maxLife: 0.075 });
         for (let i = 0; i < 4; i++) {
@@ -1306,7 +1350,7 @@
           const spread = p * 0.12 + (Math.random() - 0.5) * 0.06;
           const pdx = Math.cos(player.angle + spread);
           const pdy = Math.sin(player.angle + spread);
-          const hit = raycastShot(sx, sy, pdx, pdy, 175);
+          const hit = raycastShot(sx, sy, pdx, pdy, 392);
           tracers.push({ x1: sx, y1: sy, x2: hit.x, y2: hit.y, life: 0.07, maxLife: 0.07 });
           if (hit.enemy) { hit.enemy.hp -= 57; burst(hit.x, hit.y, "#9f2a24", 4); skillEnergy = Math.min(1, skillEnergy + 0.125); }
           else if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 3); hitWallCorner(hit.x, hit.y, 1.0, 40); }
@@ -1350,6 +1394,52 @@
             life: 0.1 + Math.random() * 0.08, color: "#88ccff", r: 3 + Math.random() * 2 });
         }
         shake = Math.max(shake, 2);
+      } else if (currentWeapon === 4) {
+        // 권총 - 기관총 50% 속도/데미지/70% 사거리
+        if (pistolReloadTimer > 0) return;
+        if (pistolAmmo <= 0) { pistolReloadTimer = PISTOL_RELOAD_TIME; return; }
+        pistolAmmo--;
+        if (pistolAmmo <= 0) pistolReloadTimer = PISTOL_RELOAD_TIME;
+        shootCooldown = 0.22;
+        playSfx("playerGun", 0.88 + Math.random() * 0.08);
+        const hitP = raycastShot(sx, sy, dx, dy, 686);
+        tracers.push({ x1: sx, y1: sy, x2: hitP.x, y2: hitP.y, life: 0.09, maxLife: 0.09 });
+        if (hitP.enemy) { hitP.enemy.hp -= 22 * (rageActive ? 2 : 1); burst(hitP.x, hitP.y, "#9f2a24", 4); skillEnergy = Math.min(1, skillEnergy + 0.1); }
+        else if (hitP.solid) { burst(hitP.x, hitP.y, "#f4efe8", 3); }
+        flashes.push({ x: sx + dx * 16, y: sy + dy * 16, angle: player.angle, life: 0.06, maxLife: 0.06 });
+        shake = Math.max(shake, 2); recoilAmt = 0.7;
+      } else if (currentWeapon === 5) {
+        // 저격총 - 데미지 150, 사거리 1960 (기관총 2배)
+        if (sniperReloadTimer > 0) return;
+        if (sniperAmmo <= 0) { sniperReloadTimer = SNIPER_RELOAD_TIME; return; }
+        sniperAmmo--;
+        sniperReloadTimer = SNIPER_RELOAD_TIME;
+        shootCooldown = 0.5;
+        playSfx("playerGun", 1.3 + Math.random() * 0.05);
+        const hitS = raycastShot(sx, sy, dx, dy, 1960);
+        tracers.push({ x1: sx, y1: sy, x2: hitS.x, y2: hitS.y, life: 0.18, maxLife: 0.18 });
+        if (hitS.enemy) {
+          const dmg = 150 * (rageActive ? 2 : 1);
+          hitS.enemy.hp -= dmg;
+          burst(hitS.x, hitS.y, "#ff4000", 10);
+          skillEnergy = Math.min(1, skillEnergy + 0.5);
+        } else if (hitS.solid) { burst(hitS.x, hitS.y, "#f4efe8", 6); hitWallCorner(hitS.x, hitS.y, 0.5, 50); }
+        flashes.push({ x: sx + dx * 22, y: sy + dy * 22, angle: player.angle, life: 0.12, maxLife: 0.12 });
+        shake = Math.max(shake, 6); recoilAmt = 1.5;
+      } else if (currentWeapon === 6) {
+        // 대구경 권총 (VIPER 전용) - 데미지 120, 사거리 588
+        if (heavyPistolReloadTimer > 0) return;
+        if (heavyPistolAmmo <= 0) { heavyPistolReloadTimer = HEAVY_PISTOL_RELOAD_TIME; return; }
+        heavyPistolAmmo--;
+        if (heavyPistolAmmo <= 0) heavyPistolReloadTimer = HEAVY_PISTOL_RELOAD_TIME;
+        shootCooldown = 0.38;
+        playSfx("playerGun", 1.15 + Math.random() * 0.08);
+        const hitHP = raycastShot(sx, sy, dx, dy, 588);
+        tracers.push({ x1: sx, y1: sy, x2: hitHP.x, y2: hitHP.y, life: 0.13, maxLife: 0.13 });
+        if (hitHP.enemy) { hitHP.enemy.hp -= 120 * (rageActive ? 2 : 1); burst(hitHP.x, hitHP.y, "#ff6010", 8); skillEnergy = Math.min(1, skillEnergy + 0.3); }
+        else if (hitHP.solid) { burst(hitHP.x, hitHP.y, "#f4efe8", 4); }
+        flashes.push({ x: sx + dx * 18, y: sy + dy * 18, angle: player.angle, life: 0.09, maxLife: 0.09 });
+        shake = Math.max(shake, 4); recoilAmt = 1.2;
       }
     }
 
@@ -1736,7 +1826,12 @@
         }
         updateCamera(dt, cAimTarget);
         sendInputToHost();
-        if (isMobile && mobileControls.swap) { currentWeapon = (currentWeapon + 1) % 4; mobileControls.swap = false; }
+        if (isMobile && mobileControls.swap) {
+          const weps2 = [playerChar.primaryW, playerChar.secondaryW];
+          const idx2 = weps2.indexOf(currentWeapon);
+          currentWeapon = weps2[(idx2 + 1) % weps2.length];
+          mobileControls.swap = false;
+        }
         return;
       }
 
@@ -1746,6 +1841,9 @@
       if (rifleReloadTimer > 0) { rifleReloadTimer -= dt; if (rifleReloadTimer <= 0) { rifleReloadTimer = 0; rifleAmmo = RIFLE_MAX_AMMO; } }
       if (shotgunReloadTimer > 0) { shotgunReloadTimer -= dt; if (shotgunReloadTimer <= 0) { shotgunReloadTimer = 0; shotgunAmmo = SHOTGUN_MAX_AMMO; } }
       if (taserReloadTimer > 0) { taserReloadTimer -= dt; if (taserReloadTimer <= 0) { taserReloadTimer = 0; taserAmmo = TASER_MAX_AMMO; } }
+      if (pistolReloadTimer > 0) { pistolReloadTimer -= dt; if (pistolReloadTimer <= 0) { pistolReloadTimer = 0; pistolAmmo = PISTOL_MAX_AMMO; } }
+      if (sniperReloadTimer > 0) { sniperReloadTimer -= dt; if (sniperReloadTimer <= 0) { sniperReloadTimer = 0; sniperAmmo = SNIPER_MAX_AMMO; } }
+      if (heavyPistolReloadTimer > 0) { heavyPistolReloadTimer -= dt; if (heavyPistolReloadTimer <= 0) { heavyPistolReloadTimer = 0; heavyPistolAmmo = HEAVY_PISTOL_MAX_AMMO; } }
       player.invuln -= dt;
       player.dodge -= dt;
       updateRaidWarningEffects(dt);
@@ -1771,6 +1869,7 @@
 
       const sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
       let speed = sprint && player.stamina > 0 ? 160 : 106;
+      speed *= playerChar.speedMult * (rageActive ? 1.2 : 1);
       if (sprint && (mx || my)) player.stamina = Math.max(0, player.stamina - dt * 35);
       else player.stamina = Math.min(100, player.stamina + dt * 22);
       if ((keys.has("Space") || (isMobile && mobileControls.dodge)) && player.stamina > 25 && player.dodge <= 0 && (mx || my)) {
@@ -1887,17 +1986,64 @@
       if (!skillActive && (mouse.right || keys.has("KeyQ"))) throwBomb(aimTarget);
       // 스킬 발동: E키 or 모바일 AIM 빠른 팅김 (flick)
       if (keys.has("KeyE") && skillEnergy >= 1 && !skillActive) {
-        skillActive = true; skillTimer = 3.0; shootCooldown = 0;
+        if (playerChar.skillType === "stun_aura") {
+          // MEDIC 스킬: 주변 적 마취 효과
+          const stunR = 55 * 0.3 * 8; // ~132px
+          for (const e of enemies) {
+            if (Math.hypot(e.x - player.x, e.y - player.y) < stunR) {
+              e.slowTimer = 3.0;
+              burst(e.x, e.y, "#88ccff", 8);
+            }
+          }
+          skillEnergy = 0;
+          speechBubbles.push({ x: player.x, y: player.y - 40, text: "STUN AURA!", life: 1.5, maxLife: 1.5, screen: true });
+        } else {
+          skillActive = true; skillTimer = 3.0; shootCooldown = 0;
+        }
       }
       if (isMobile && skillEnergy >= 1 && !skillActive) {
         const flickDelta = mobileControls.aimDeflection - mobileControls.prevAimDeflection;
         if (flickDelta > 0.45 && mobileControls.shoot) {
-          skillActive = true; skillTimer = 3.0; shootCooldown = 0;
+          if (playerChar.skillType === "stun_aura") {
+            const stunR2 = 55 * 0.3 * 8;
+            for (const e of enemies) {
+              if (Math.hypot(e.x - player.x, e.y - player.y) < stunR2) {
+                e.slowTimer = 3.0;
+                burst(e.x, e.y, "#88ccff", 8);
+              }
+            }
+            skillEnergy = 0;
+            speechBubbles.push({ x: player.x, y: player.y - 40, text: "STUN AURA!", life: 1.5, maxLife: 1.5, screen: true });
+          } else {
+            skillActive = true; skillTimer = 3.0; shootCooldown = 0;
+          }
         }
       }
       mobileControls.prevAimDeflection = mobileControls.aimDeflection;
+      // 남성 캐릭터 분노 상태: HP 급감 시 자동 발동 (2초 2배 능력)
+      if (playerChar.gender === "male") {
+        if (!rageActive && player.hp < ragePrevHp - 20 && player.hp > 0) {
+          rageActive = true; rageTimer = 2.0;
+          speechBubbles.push({ x: player.x, y: player.y - 40, text: "RAGE!", life: 1.2, maxLife: 1.2, screen: true });
+        }
+        ragePrevHp = player.hp;
+        if (rageActive) {
+          rageTimer -= dt;
+          if (rageTimer <= 0) { rageActive = false; rageTimer = 0; }
+        }
+      }
+      // 여성 캐릭터 (MEDIC) 힐 오라: 정지 시 자가치유 초당 5hp
+      if (playerChar.gender === "female" && !player.isMoving) {
+        healAuraTimer += dt;
+        if (healAuraTimer >= 1.0) { healAuraTimer = 0; player.hp = Math.min(Math.round(100 * playerChar.hpMult), player.hp + 5); }
+      } else { healAuraTimer = 0; }
       mobileControls.bomb = false;
-      if (mobileControls.swap) { currentWeapon = (currentWeapon + 1) % 4; mobileControls.swap = false; }
+      if (mobileControls.swap) {
+        const weps = [playerChar.primaryW, playerChar.secondaryW];
+        const idx = weps.indexOf(currentWeapon);
+        currentWeapon = weps[(idx + 1) % weps.length];
+        mobileControls.swap = false;
+      }
 
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
@@ -2807,6 +2953,7 @@
       if (state === "intro") drawIntroLogo();
       else if (state === "menu") drawMenu();
       else if (state === "lobby") drawLobby();
+      else if (state === "charselect") drawCharSelect();
       else if (state === "maptool") drawMapTool();
       else {
         const _p2split = (mp.role === "host" && player2) ? player2 : (mp.role === "client" && remotePlayer ? remotePlayer : null);
@@ -3027,6 +3174,203 @@
         ctx.arc(x + dx, y + dy, size * (0.032 + (i % 3) * 0.012) * (1 - dustT * 0.35), 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore();
+    }
+
+    function drawCharSelect() {
+      const now = performance.now() * 0.001;
+      const cx = width / 2, cy = height / 2;
+      // Background
+      const bg = ctx.createLinearGradient(0, 0, 0, height);
+      bg.addColorStop(0, "#060302"); bg.addColorStop(1, "#0a0604");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, width, height);
+      // Top gold bar
+      ctx.fillStyle = "rgba(220,170,40,0.9)"; ctx.fillRect(0, 0, width, 4);
+      ctx.fillStyle = "rgba(220,170,40,0.9)"; ctx.fillRect(0, height-4, width, 4);
+
+      // Title
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const isP2 = charSelectPhase === 1;
+      ctx.fillStyle = "#ffe060";
+      ctx.font = `bold ${Math.min(20, height*0.038)}px serif`;
+      ctx.fillText(isP2 ? "2P — 캐릭터 선택" : "1P — 캐릭터 선택", cx, height * 0.07);
+      ctx.fillStyle = "rgba(200,150,40,0.6)";
+      ctx.font = `${Math.min(12, height*0.022)}px monospace`;
+      ctx.fillText("FOR THE EMPEROR — SELECT YOUR CHAMPION", cx, height * 0.13);
+
+      // 4 character cards
+      const cardW = Math.min(160, (width - 80) / 4 - 12);
+      const cardH = Math.min(240, height * 0.56);
+      const totalW = cardW * 4 + 36;
+      const startX = cx - totalW / 2;
+      const cardY = height * 0.19;
+      const selectedIdx = isP2 ? p2CharIdx : p1CharIdx;
+
+      for (let i = 0; i < 4; i++) {
+        const cd = CHAR_DEFS[i];
+        const cx2 = startX + i * (cardW + 12) + cardW / 2;
+        const isSelected = selectedIdx === i;
+        const hover = Math.abs(now % 2 - 1) * 0.3;
+
+        // Card background
+        ctx.save();
+        if (isSelected) {
+          ctx.shadowColor = "rgba(220,180,40,0.8)"; ctx.shadowBlur = 20;
+        }
+        ctx.beginPath();
+        ctx.roundRect(cx2 - cardW/2, cardY, cardW, cardH, 6);
+        const cardBg = ctx.createLinearGradient(cx2-cardW/2, cardY, cx2+cardW/2, cardY+cardH);
+        if (isSelected) {
+          cardBg.addColorStop(0, "rgba(80,55,10,0.97)");
+          cardBg.addColorStop(1, "rgba(40,25,5,0.97)");
+        } else {
+          cardBg.addColorStop(0, "rgba(30,20,8,0.9)");
+          cardBg.addColorStop(1, "rgba(15,10,3,0.9)");
+        }
+        ctx.fillStyle = cardBg; ctx.fill();
+        ctx.strokeStyle = isSelected ? `rgba(255,200,40,${0.8+hover})` : "rgba(140,100,25,0.4)";
+        ctx.lineWidth = isSelected ? 2 : 1; ctx.stroke();
+        ctx.restore();
+
+        // Character preview (drawn in card)
+        ctx.save();
+        ctx.translate(cx2, cardY + cardH * 0.32);
+        const charScale = Math.min(1.4, cardW / 120);
+        ctx.scale(charScale, charScale);
+        drawCharPreview(cd, isSelected);
+        ctx.restore();
+
+        // Character name
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.font = `bold ${Math.min(13, cardW*0.09)}px serif`;
+        ctx.fillStyle = isSelected ? "#ffe870" : "rgba(200,160,50,0.85)";
+        if (isSelected) { ctx.shadowColor="rgba(255,180,40,0.8)"; ctx.shadowBlur=8; }
+        ctx.fillText(cd.name, cx2, cardY + cardH * 0.65);
+        ctx.shadowBlur = 0;
+
+        // Sub-title
+        ctx.font = `${Math.min(9, cardW*0.065)}px monospace`;
+        ctx.fillStyle = isSelected ? "rgba(255,220,100,0.9)" : "rgba(180,130,40,0.65)";
+        ctx.fillText(cd.sub, cx2, cardY + cardH * 0.73);
+
+        // Stats bar area
+        const statY = cardY + cardH * 0.79;
+        const bw = cardW * 0.72, bh = 5, bx = cx2 - bw/2;
+        const labelColor = isSelected ? "rgba(220,180,60,0.9)" : "rgba(160,120,35,0.7)";
+        ctx.font = `${Math.min(8, cardW*0.057)}px monospace`;
+        ctx.textAlign = "left";
+        // Speed bar
+        ctx.fillStyle = labelColor; ctx.fillText("SPD", bx, statY - 1);
+        ctx.fillStyle = "rgba(40,30,10,0.8)"; ctx.fillRect(bx+22, statY-4, bw-22, bh);
+        ctx.fillStyle = isSelected ? "#60c860":"rgba(60,140,60,0.7)";
+        ctx.fillRect(bx+22, statY-4, (bw-22)*Math.min(1, cd.speedMult/1.3), bh);
+        // HP bar
+        ctx.fillStyle = labelColor; ctx.fillText("HP", bx, statY+9);
+        ctx.fillStyle = "rgba(40,30,10,0.8)"; ctx.fillRect(bx+22, statY+5, bw-22, bh);
+        ctx.fillStyle = isSelected ? "#c84040":"rgba(140,40,40,0.7)";
+        ctx.fillRect(bx+22, statY+5, (bw-22)*Math.min(1, cd.hpMult/1.4), bh);
+
+        // Trait tag
+        ctx.textAlign = "center";
+        const tagText = cd.gender === "female" ? "♀ 힐링" : cd.build === "heavy" ? "♂ 중장갑" : cd.build === "slim" ? "♂ 고속" : "♂ 균형";
+        ctx.font = `${Math.min(8,cardW*0.055)}px monospace`;
+        ctx.fillStyle = cd.gender === "female" ? "rgba(255,160,220,0.85)" : cd.build === "heavy" ? "rgba(255,130,50,0.85)" : "rgba(100,220,255,0.85)";
+        ctx.fillText(tagText, cx2, cardY + cardH * 0.95);
+
+        // Selection highlight at bottom
+        if (isSelected) {
+          ctx.fillStyle = "rgba(255,200,40,0.85)";
+          ctx.fillRect(cx2 - cardW/2 + 8, cardY + cardH - 10, cardW - 16, 3);
+        }
+      }
+
+      // Instruction
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = `rgba(220,180,50,${0.6 + Math.abs(Math.sin(now*2))*0.35})`;
+      ctx.font = `bold ${Math.min(12, height*0.022)}px monospace`;
+      ctx.fillText("탭하여 선택  ◈  다시 탭하면 확정", cx, height * 0.92);
+
+      // Back button
+      ctx.fillStyle = "rgba(20,14,4,0.88)";
+      const backR = { x: 14, y: 12, w: 80, h: 26 };
+      ctx.fillRect(backR.x, backR.y, backR.w, backR.h);
+      ctx.strokeStyle = "rgba(160,120,30,0.6)"; ctx.lineWidth = 1; ctx.strokeRect(backR.x, backR.y, backR.w, backR.h);
+      ctx.fillStyle = "rgba(200,155,45,0.8)"; ctx.font = "bold 10px monospace";
+      ctx.textAlign = "center"; ctx.fillText("◄ BACK", backR.x + backR.w/2, backR.y + backR.h/2 + 1);
+    }
+
+    function drawCharPreview(cd, isSelected) {
+      const now = performance.now() * 0.001;
+      const r = 26;
+      const col = cd.col;
+      const float = Math.sin(now * 1.8 + cd.id) * 3;
+      ctx.save();
+      ctx.translate(0, float);
+
+      // Glow ring for selected
+      if (isSelected) {
+        ctx.beginPath(); ctx.arc(0, 0, r * 1.5, 0, Math.PI*2);
+        const gl = ctx.createRadialGradient(0,0,r*0.8,0,0,r*1.5);
+        gl.addColorStop(0, "rgba(255,190,40,0.25)"); gl.addColorStop(1, "rgba(255,190,40,0)");
+        ctx.fillStyle = gl; ctx.fill();
+      }
+
+      // Shadow
+      ctx.save(); ctx.globalAlpha = 0.3;
+      ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(0, r*0.92, r*0.6, r*0.15, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+
+      // Body torso
+      ctx.fillStyle = col.body;
+      ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 1.5;
+      if (cd.build === "heavy") {
+        ctx.beginPath(); ctx.ellipse(0, 0, r*0.62, r*0.55, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      } else if (cd.build === "slim") {
+        ctx.beginPath(); ctx.ellipse(0, 0, r*0.44, r*0.52, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.ellipse(0, 0, r*0.52, r*0.52, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      }
+
+      // Chest highlight
+      const chG = ctx.createLinearGradient(-r*0.3, -r*0.3, r*0.1, r*0.1);
+      chG.addColorStop(0, col.light); chG.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = chG;
+      ctx.beginPath(); ctx.ellipse(-r*0.1, -r*0.08, r*0.28, r*0.24, -0.3, 0, Math.PI*2); ctx.fill();
+
+      // Shoulder pads
+      ctx.fillStyle = col.shoulder; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = 1;
+      const shW = cd.build === "heavy" ? r*0.32 : r*0.26;
+      const shH = cd.build === "heavy" ? r*0.18 : r*0.14;
+      ctx.beginPath(); ctx.ellipse(-r*(cd.build==="heavy"?0.54:0.44), -r*0.12, shW, shH, -0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse( r*(cd.build==="heavy"?0.54:0.44), -r*0.12, shW, shH,  0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+      // Helmet
+      const hr = cd.build === "slim" ? r*0.34 : r*0.38;
+      const hx = 0, hy = -r*(cd.build==="heavy"?0.62:0.58);
+      ctx.fillStyle = col.body; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+      // Visor
+      ctx.fillStyle = col.visor;
+      ctx.shadowColor = col.visor; ctx.shadowBlur = isSelected ? 8 : 4;
+      ctx.beginPath();
+      ctx.arc(hx, hy + hr*0.08, hr*0.68, Math.PI*0.72, Math.PI*0.28, true);
+      ctx.arc(hx, hy + hr*0.08, hr*0.36, Math.PI*0.28, Math.PI*0.72);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Female character: white cross on chest
+      if (cd.gender === "female") {
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.fillRect(-r*0.04, -r*0.22, r*0.08, r*0.25);
+        ctx.fillRect(-r*0.14, -r*0.15, r*0.28, r*0.08);
+      }
+
+      // Weapon hint icon
+      const wIcon = cd.primaryW === 5 ? "▬▬▬▬" : cd.primaryW === 1 ? "▐▌▐" : "▬▬";
+      ctx.fillStyle = "rgba(200,160,50,0.75)"; ctx.font = `bold ${r*0.28}px monospace`;
+      ctx.textAlign = "center"; ctx.fillText(wIcon, r*0.55, r*0.12);
+
       ctx.restore();
     }
 
@@ -3486,6 +3830,49 @@
       }
 
       ctx.restore();
+    }
+
+    function handleCharSelectClick(x, y) {
+      const cardW = Math.min(160, (width - 80) / 4 - 12);
+      const cardH = Math.min(240, height * 0.56);
+      const totalW = cardW * 4 + 36;
+      const startX = width/2 - totalW / 2;
+      const cardY = height * 0.19;
+      const isP2 = charSelectPhase === 1;
+      // Back button
+      if (x >= 14 && x <= 94 && y >= 12 && y <= 38) {
+        state = "menu"; return;
+      }
+      for (let i = 0; i < 4; i++) {
+        const cx2 = startX + i * (cardW + 12) + cardW / 2;
+        if (x >= cx2 - cardW/2 && x <= cx2 + cardW/2 && y >= cardY && y <= cardY + cardH) {
+          if (isP2) {
+            if (p2CharIdx === i) {
+              // Confirmed P2 selection
+              state = "play";
+              ensureAudio();
+            } else {
+              p2CharIdx = i;
+            }
+          } else {
+            if (p1CharIdx === i) {
+              // Confirmed P1 selection
+              playerChar = CHAR_DEFS[p1CharIdx];
+              if (mp.role === "host" && player2) {
+                // multiplayer: P2 also picks
+                charSelectPhase = 1;
+              } else {
+                resetWorld();
+                state = "play";
+                ensureAudio();
+              }
+            } else {
+              p1CharIdx = i;
+            }
+          }
+          return;
+        }
+      }
     }
 
     function handleMenuClick(x, y) {
@@ -5565,7 +5952,8 @@
       ctx.restore();
 
       // HP 바
-      const hpRatio = Math.max(0, player.hp / 100);
+      const maxHp = Math.round(100 * playerChar.hpMult);
+      const hpRatio = Math.max(0, player.hp / maxHp);
       const hpColor = hpRatio > 0.5 ? "#22e870" : (hpRatio > 0.25 ? "#f0a020" : "#e83020");
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(22, 18, 138, 10);
@@ -5581,7 +5969,7 @@
       ctx.strokeStyle = "rgba(0,200,255,0.3)"; ctx.lineWidth = 0.8;
       ctx.strokeRect(22, 18, 138, 10);
       ctx.fillStyle = hpColor; ctx.font = "bold 9px monospace";
-      ctx.fillText("■ HP " + Math.ceil(player.hp) + "%", 22, 16);
+      ctx.fillText("■ HP " + Math.ceil(player.hp) + "/" + maxHp, 22, 16);
       ctx.restore();
 
       // 스킬 에너지 바
@@ -5603,12 +5991,12 @@
       ctx.restore();
 
       // 무기 표시
-      const wColors = ["#ffd060", "#ff8040", "#40d0ff", "#ff6030"];
-      const wNames = ["RIFLE", "SHOTGN", "TASER", "BOMB"];
-      const wIcons = ["▸", "▸▸", "⚡", "◉"];
+      const wColors = { 0:"#ffd060", 1:"#ff8040", 2:"#40d0ff", 3:"#ff6030", 4:"#e0c060", 5:"#80ff80", 6:"#ff9040" };
+      const wNames = { 0:"RIFLE", 1:"SHOTGUN", 2:"TASER", 3:"BOMB", 4:"PISTOL", 5:"SNIPER", 6:"HEAVY PISTOL" };
+      const wIcons = { 0:"▸", 1:"▸▸", 2:"⚡", 3:"◉", 4:"▸", 5:"▸▬", 6:"▸●" };
       ctx.fillStyle = wColors[currentWeapon] || "#ffd060";
       ctx.font = "bold 11px monospace";
-      ctx.fillText(wIcons[currentWeapon] + " " + wNames[currentWeapon], 22, 58);
+      ctx.fillText((wIcons[currentWeapon] || "▸") + " " + (wNames[currentWeapon] || ""), 22, 58);
 
       // 탄약 / 재장전 표시
       ctx.font = "bold 9px monospace";
@@ -5616,7 +6004,10 @@
       if (currentWeapon === 0) { reloadT = rifleReloadTimer; ammoNow = rifleAmmo; ammoMax = RIFLE_MAX_AMMO; }
       else if (currentWeapon === 1) { reloadT = shotgunReloadTimer; ammoNow = shotgunAmmo; ammoMax = SHOTGUN_MAX_AMMO; }
       else if (currentWeapon === 2) { reloadT = taserReloadTimer; ammoNow = taserAmmo; ammoMax = TASER_MAX_AMMO; }
-      if (currentWeapon <= 2) {
+      else if (currentWeapon === 4) { reloadT = pistolReloadTimer; ammoNow = pistolAmmo; ammoMax = PISTOL_MAX_AMMO; }
+      else if (currentWeapon === 5) { reloadT = sniperReloadTimer; ammoNow = sniperAmmo; ammoMax = SNIPER_MAX_AMMO; }
+      else if (currentWeapon === 6) { reloadT = heavyPistolReloadTimer; ammoNow = heavyPistolAmmo; ammoMax = HEAVY_PISTOL_MAX_AMMO; }
+      if (currentWeapon !== 3) {
         if (reloadT > 0) {
           ctx.fillStyle = "#ff6060";
           ctx.fillText("RELOAD " + Math.ceil(reloadT * 10) / 10 + "s", 22, 70);
@@ -6063,7 +6454,11 @@
         }
         if (state === "menu") {
           if (handleMenuClick(p.x, p.y)) return;
-          startGame();
+          charSelectPhase = 0; p1CharIdx = 0; state = "charselect";
+          return;
+        }
+        if (state === "charselect") {
+          handleCharSelectClick(p.x, p.y);
           return;
         }
         if (state === "dead") {
