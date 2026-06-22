@@ -2425,7 +2425,7 @@
         camera.y = ty;
         return;
       }
-      const follow = 1 - Math.pow(0.035, dt);
+      const follow = 1 - Math.pow(0.001, dt);
       camera.x += (tx - camera.x) * follow;
       camera.y += (ty - camera.y) * follow;
     }
@@ -2433,7 +2433,7 @@
     function smartCameraTarget(worldMouse) {
       const forward = { x: Math.cos(player.angle), y: Math.sin(player.angle) };
       const aimDistance = clamp(Math.hypot(worldMouse.x - player.x, worldMouse.y - player.y), 80, 520);
-      const lookAhead = clamp(aimDistance * 0.42, 120, 260);
+      const lookAhead = clamp(aimDistance * 0.20, 50, 120);
       let x = player.x + forward.x * lookAhead;
       let y = player.y + forward.y * lookAhead;
 
