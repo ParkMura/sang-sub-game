@@ -1714,7 +1714,7 @@
       player.moveY = my;
       player.isMoving = Math.hypot(player.x - beforePlayerX, player.y - beforePlayerY) > 0.35;
       if (player.isMoving) { player.walkTime += dt; stationaryTimer = 0; autoGatling = false; }
-      else { player.walkTime *= 0.88; stationaryTimer += dt; if (stationaryTimer >= 1.0) autoGatling = true; }
+      else { player.walkTime *= 0.88; stationaryTimer = 0; autoGatling = false; }
       if (recoilAmt > 0) recoilAmt = Math.max(0, recoilAmt - dt * 16);
       updateDoors(dt);
       updateIdleRaid(dt, Math.hypot(player.x - beforePlayerX, player.y - beforePlayerY), mouse.down || mouse.right || keys.has("KeyQ"));
