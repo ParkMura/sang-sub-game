@@ -79,6 +79,8 @@ ParkMura/sang-sub-game 저장소의 CLAUDE.md 읽고 게임 작업 이어서 해
 | 48 | 마취총 5발 | `taserAmmo`, `taserReloadTimer`, 1.5초 재장전 |
 | 49 | 벽 모서리 파손 | `wallCornerDmg` WeakMap, `hitWallCorner()`, `drawWall()` clip |
 | 50 | HUD 탄약 표시 | 탄약수/재장전 타이머 HUD 패널에 표시 |
+| 51 | Space Marine 2 캐릭터 | 딥코발트 블루 파워아머, 금장 어깨패드, 해골 엠블렘, 체인, 레드 바이저 슬릿 |
+| 52 | 볼터 무기 리디자인 | 소총→볼터, 산탄총→스톰볼터(더블배럴), 마취총→플라즈마피스톨(청색 코일) |
 
 ## 미구현 (요청됨)
 - 브롤스타즈식 사선 시야
