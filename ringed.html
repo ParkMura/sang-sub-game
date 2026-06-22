@@ -1447,6 +1447,45 @@
       }
     }
 
+    function fireSniperAt(tx, ty) {
+      if (sniperReloadTimer > 0 || sniperAmmo <= 0) {
+        if (sniperAmmo <= 0) sniperReloadTimer = SNIPER_RELOAD_TIME;
+        return;
+      }
+      sniperAmmo--;
+      sniperReloadTimer = SNIPER_RELOAD_TIME;
+      playSfx("playerGun", 1.3 + Math.random() * 0.05);
+      // 과녁 위치에서 가장 가까운 적 탐색
+      let nearestEnemy = null, nearestDist = Infinity;
+      for (const e of enemies) {
+        const d = Math.hypot(e.x - tx, e.y - ty);
+        if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+      }
+      const r = nearestEnemy ? (nearestEnemy.r || 22) : 22;
+      let dmg = 0;
+      if (nearestEnemy) {
+        if (nearestDist <= r) dmg = 100;
+        else if (nearestDist <= r * 3) dmg = 60;
+      }
+      // 발사 방향 (플레이어 → 목표)
+      const pdx = tx - player.x, pdy = ty - player.y;
+      const pd = Math.hypot(pdx, pdy) || 1;
+      const sx = player.x + (pdx / pd) * 34, sy = player.y + (pdy / pd) * 34;
+      tracers.push({ x1: sx, y1: sy, x2: tx, y2: ty, life: 0.25, maxLife: 0.25 });
+      flashes.push({ x: sx, y: sy, angle: Math.atan2(pdy, pdx), life: 0.12, maxLife: 0.12 });
+      player.angle = Math.atan2(pdy, pdx);
+      shake = Math.max(shake, 6); recoilAmt = 1.5;
+      if (dmg > 0 && nearestEnemy) {
+        nearestEnemy.hp -= dmg * (rageActive ? 2 : 1);
+        burst(nearestEnemy.x, nearestEnemy.y, "#ff4000", dmg === 100 ? 14 : 8);
+        skillEnergy = Math.min(1, skillEnergy + (dmg === 100 ? 0.6 : 0.35));
+        const label = dmg === 100 ? "DIRECT HIT!" : "HIT " + dmg;
+        speechBubbles.push({ text: label, life: 1.3, maxLife: 1.3, screen: true });
+      } else {
+        speechBubbles.push({ text: "MISS", life: 0.9, maxLife: 0.9, screen: true });
+      }
+    }
+
     function throwBomb(target) {
       if (bombCooldown > 0) return;
       bombCooldown = 0.72;
@@ -2073,7 +2112,9 @@
         }
       } else {
         const mobileFireRifle = isMobile && currentWeapon === 0 && mobileControls.aimAtEdge;
-        const mobileFireOther = isMobile && currentWeapon !== 0 && mobileControls.shoot;
+        // 저격총(VIPER weapon 5)은 손 뗄 때 발사 — 여기서 연사 제외
+        const isVIPERSniperMobile = isMobile && currentWeapon === 5 && playerChar && playerChar.id === 2;
+        const mobileFireOther = isMobile && currentWeapon !== 0 && mobileControls.shoot && !isVIPERSniperMobile;
         if (mouse.down || mobileFireRifle || mobileFireOther) fire();
       }
       // 자동 개틀링: 1초 이상 정지하면 자동 속사
@@ -2642,9 +2683,12 @@
     function mobileAimWorldTarget() {
       if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
         const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
+        const inv = currentWeapon === 5 && playerChar && playerChar.id === 2;
+        const dx = inv ? -mobileControls.aimDirX : mobileControls.aimDirX;
+        const dy = inv ? -mobileControls.aimDirY : mobileControls.aimDirY;
         return {
-          x: player.x + mobileControls.aimDirX * mobileControls.aimDeflection * maxWorldRadius,
-          y: player.y + mobileControls.aimDirY * mobileControls.aimDeflection * maxWorldRadius
+          x: player.x + dx * mobileControls.aimDeflection * maxWorldRadius,
+          y: player.y + dy * mobileControls.aimDeflection * maxWorldRadius
         };
       }
       return { x: player.x, y: player.y };
@@ -6015,10 +6059,13 @@
     function drawMobileAimCursorWorld() {
       // 월드 좌표계에 과녁 그리기 — 캐릭터와 동일한 카메라 변환 사용하여 항상 정확한 위치
       let wx, wy;
+      const isVIPERSniper = currentWeapon === 5 && playerChar && playerChar.id === 2;
       if (mobileControls.shoot && mobileControls.aimDeflection > 0) {
         const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
-        wx = player.x + mobileControls.aimDirX * mobileControls.aimDeflection * maxWorldRadius;
-        wy = player.y + mobileControls.aimDirY * mobileControls.aimDeflection * maxWorldRadius;
+        const dx = isVIPERSniper ? -mobileControls.aimDirX : mobileControls.aimDirX;
+        const dy = isVIPERSniper ? -mobileControls.aimDirY : mobileControls.aimDirY;
+        wx = player.x + dx * mobileControls.aimDeflection * maxWorldRadius;
+        wy = player.y + dy * mobileControls.aimDeflection * maxWorldRadius;
       } else {
         wx = player.x;
         wy = player.y;
@@ -6029,21 +6076,30 @@
       const r = 5.5 / z;
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = mobileControls.shoot ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.58)";
-      ctx.lineWidth = (mobileControls.shoot ? 2.2 : 1.6) / z;
-      ctx.beginPath();
-      ctx.moveTo(wx - lineLen, wy);
-      ctx.lineTo(wx - gap, wy);
-      ctx.moveTo(wx + gap, wy);
-      ctx.lineTo(wx + lineLen, wy);
-      ctx.moveTo(wx, wy - lineLen);
-      ctx.lineTo(wx, wy - gap);
-      ctx.moveTo(wx, wy + gap);
-      ctx.lineTo(wx, wy + lineLen);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(wx, wy, r, 0, Math.PI * 2);
-      ctx.stroke();
+      if (isVIPERSniper && mobileControls.shoot) {
+        // 저격 스코프 — 밝은 초록 큰 원 + 십자선
+        ctx.strokeStyle = "rgba(0,255,120,0.95)";
+        ctx.lineWidth = 2.0 / z;
+        const scopeR = 28 / z;
+        ctx.beginPath(); ctx.arc(wx, wy, scopeR, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(wx - scopeR, wy); ctx.lineTo(wx + scopeR, wy);
+        ctx.moveTo(wx, wy - scopeR); ctx.lineTo(wx, wy + scopeR);
+        ctx.stroke();
+        // 중앙 작은 도트
+        ctx.fillStyle = "rgba(0,255,120,0.9)";
+        ctx.beginPath(); ctx.arc(wx, wy, 2.5 / z, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.strokeStyle = mobileControls.shoot ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.58)";
+        ctx.lineWidth = (mobileControls.shoot ? 2.2 : 1.6) / z;
+        ctx.beginPath();
+        ctx.moveTo(wx - lineLen, wy); ctx.lineTo(wx - gap, wy);
+        ctx.moveTo(wx + gap, wy);    ctx.lineTo(wx + lineLen, wy);
+        ctx.moveTo(wx, wy - lineLen); ctx.lineTo(wx, wy - gap);
+        ctx.moveTo(wx, wy + gap);    ctx.lineTo(wx, wy + lineLen);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -7012,6 +7068,14 @@
         if (touch.identifier === mobileControls.aimId) mobileControls.aimId = null;
       }
       if (mobileControls.aimId === null) {
+        // 저격총 (VIPER weapon 5): AIM 손 뗄 때 발사, 반전 과녁 위치 기준 정확도 데미지
+        if (currentWeapon === 5 && playerChar && playerChar.id === 2 &&
+            mobileControls.shoot && mobileControls.aimDeflection > 0 && state === "play") {
+          const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
+          const tx = player.x + (-mobileControls.aimDirX) * mobileControls.aimDeflection * maxWorldRadius;
+          const ty = player.y + (-mobileControls.aimDirY) * mobileControls.aimDeflection * maxWorldRadius;
+          fireSniperAt(tx, ty);
+        }
         // 폭탄 무기: AIM 손 뗄 때 투척
         if (currentWeapon === 3 && mobileControls.shoot && mobileControls.aimDeflection > 0 && bombCooldown <= 0 && !skillActive && state === "play") {
           const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom;
