@@ -1631,7 +1631,7 @@
         if (keys.has("KeyD") || keys.has("ArrowRight")) mx++;
         if (isMobile) { mx += mobileControls.moveX; my += mobileControls.moveY; }
         const cmag = Math.hypot(mx, my);
-        if (cmag > 0.01) { mx /= cmag; my /= cmag; moveCircle(player, mx * 152 * dt, my * 152 * dt); }
+        if (cmag > 0.01) { mx /= cmag; my /= cmag; moveCircle(player, mx * 106 * dt, my * 106 * dt); }
         player.isMoving = cmag > 0.01;
         if (player.isMoving) player.walkTime += dt; else player.walkTime *= 0.88;
         // 원격 플레이어(1P/호스트) 부드러운 보간
@@ -1695,7 +1695,7 @@
       my /= mag;
 
       const sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
-      let speed = sprint && player.stamina > 0 ? 228 : 152;
+      let speed = sprint && player.stamina > 0 ? 160 : 106;
       if (sprint && (mx || my)) player.stamina = Math.max(0, player.stamina - dt * 35);
       else player.stamina = Math.min(100, player.stamina + dt * 22);
       if ((keys.has("Space") || (isMobile && mobileControls.dodge)) && player.stamina > 25 && player.dodge <= 0 && (mx || my)) {
@@ -1743,7 +1743,7 @@
       if (mp.role === "host" && player2 && mp.connected) {
         const m2 = Math.hypot(p2Input.mx, p2Input.my);
         if (m2 > 0.01) {
-          moveCircle(player2, p2Input.mx * 152 * dt, p2Input.my * 152 * dt);
+          moveCircle(player2, p2Input.mx * 106 * dt, p2Input.my * 106 * dt);
           player2.isMoving = true;
           player2.walkTime = (player2.walkTime || 0) + dt;
         } else {
