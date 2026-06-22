@@ -3034,9 +3034,287 @@
       const now = performance.now() * 0.001;
       const cx = width / 2, cy = height / 2;
 
-      // ── 우주 배경 ──
-      ctx.fillStyle = "#020408";
+      // ── DARK GOTHIC FORTRESS VOID ──
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+      bgGrad.addColorStop(0, "#060302");
+      bgGrad.addColorStop(0.45, "#0b0503");
+      bgGrad.addColorStop(0.8, "#0f0704");
+      bgGrad.addColorStop(1, "#050302");
+      ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
+
+      // Hellfire ambient glow from bottom
+      const fireGlow = ctx.createRadialGradient(cx, height * 1.05, 0, cx, height * 0.75, width * 0.85);
+      fireGlow.addColorStop(0, "rgba(220,80,10,0.22)");
+      fireGlow.addColorStop(0.35, "rgba(160,40,6,0.1)");
+      fireGlow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = fireGlow;
+      ctx.fillRect(0, 0, width, height);
+
+      // Side torch glows
+      const torch = (px, py) => {
+        const g = ctx.createRadialGradient(px, py, 0, px, py, width * 0.28);
+        g.addColorStop(0, "rgba(230,120,18,0.14)");
+        g.addColorStop(0.5, "rgba(160,60,8,0.06)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g; ctx.fillRect(0, 0, width, height);
+      };
+      torch(width * 0.06, height * 0.4); torch(width * 0.94, height * 0.4);
+
+      // Top darkness vignette
+      const topHaze = ctx.createLinearGradient(0, 0, 0, height * 0.55);
+      topHaze.addColorStop(0, "rgba(5,2,1,0.55)");
+      topHaze.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = topHaze; ctx.fillRect(0, 0, width, height);
+
+      // ── GOTHIC STONE FLOOR (lower 30%) ──
+      const floorTop = height * 0.7;
+      const floorGrad = ctx.createLinearGradient(0, floorTop, 0, height);
+      floorGrad.addColorStop(0, "rgba(14,9,3,0)");
+      floorGrad.addColorStop(0.12, "rgba(14,9,3,0.96)");
+      floorGrad.addColorStop(1, "rgba(8,5,2,1)");
+      ctx.fillStyle = floorGrad; ctx.fillRect(0, floorTop, width, height - floorTop);
+
+      const tile = 64;
+      for (let x = 0; x < width; x += tile) {
+        for (let y = Math.floor(floorTop / tile) * tile; y < height; y += tile) {
+          const a = Math.max(0, Math.min(1, (y - floorTop) / (height - floorTop)));
+          ctx.save(); ctx.globalAlpha = a * 0.72;
+          ctx.fillStyle = (Math.floor(x/tile)+Math.floor(y/tile))%2===0 ? "#120d05" : "#0e0a03";
+          ctx.fillRect(x+1, y+1, tile-2, tile-2);
+          ctx.strokeStyle = "rgba(130,85,22,0.18)"; ctx.lineWidth = 0.6;
+          ctx.strokeRect(x, y, tile, tile);
+          ctx.restore();
+        }
+      }
+      // Heavy structural seams
+      ctx.strokeStyle = "rgba(170,115,30,0.28)"; ctx.lineWidth = 1;
+      for (let x = 0; x < width; x += tile*3) {
+        ctx.save(); ctx.globalAlpha = 0.45;
+        ctx.beginPath(); ctx.moveTo(x, floorTop); ctx.lineTo(x, height); ctx.stroke();
+        ctx.restore();
+      }
+      // Floor-to-void horizon glow (amber)
+      const horiz = ctx.createLinearGradient(0, floorTop-6, 0, floorTop+28);
+      horiz.addColorStop(0, "rgba(0,0,0,0)");
+      horiz.addColorStop(0.35, "rgba(210,110,22,0.32)");
+      horiz.addColorStop(1, "rgba(80,30,5,0)");
+      ctx.fillStyle = horiz; ctx.fillRect(0, floorTop-6, width, 34);
+
+      // ── PILLAR COLUMNS (L & R) ──
+      const pW = Math.min(88, width * 0.1);
+      // Left pillar
+      const pgL = ctx.createLinearGradient(0, 0, pW, 0);
+      pgL.addColorStop(0, "#1c1106"); pgL.addColorStop(0.65, "#100a03"); pgL.addColorStop(1, "rgba(8,5,2,0)");
+      ctx.fillStyle = pgL; ctx.fillRect(0, 0, pW, height * 0.76);
+      // Right pillar
+      const pgR = ctx.createLinearGradient(width-pW, 0, width, 0);
+      pgR.addColorStop(0, "rgba(8,5,2,0)"); pgR.addColorStop(0.35, "#100a03"); pgR.addColorStop(1, "#1c1106");
+      ctx.fillStyle = pgR; ctx.fillRect(width-pW, 0, pW, height * 0.76);
+      // Gold pillar edges
+      const peG = ctx.createLinearGradient(0, 0, 0, height * 0.76);
+      peG.addColorStop(0, "rgba(220,160,40,0.8)");
+      peG.addColorStop(0.5, "rgba(180,120,28,0.55)");
+      peG.addColorStop(1, "rgba(100,60,10,0.15)");
+      ctx.strokeStyle = peG; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(pW, 0); ctx.lineTo(pW, height*0.76); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(width-pW, 0); ctx.lineTo(width-pW, height*0.76); ctx.stroke();
+      // Pillar rivets
+      ctx.fillStyle = "rgba(200,148,38,0.5)";
+      for (let ry = 22; ry < height*0.72; ry += 44) {
+        ctx.fillRect(pW-10, ry, 4, 4); ctx.fillRect(pW-22, ry+22, 4, 4);
+        ctx.fillRect(width-pW+6, ry, 4, 4); ctx.fillRect(width-pW+18, ry+22, 4, 4);
+      }
+
+      // ── IMPERIAL AQUILA (large subtle emblem behind title) ──
+      ctx.save();
+      ctx.globalAlpha = 0.065 + Math.sin(now*0.7)*0.012;
+      ctx.translate(cx, height * 0.29);
+      drawAquilaSymbol(Math.min(210, height * 0.37));
+      ctx.restore();
+
+      // ── GOLD TOP & BOTTOM BARS ──
+      const goldenBar = (y) => {
+        const bg = ctx.createLinearGradient(0, 0, width, 0);
+        bg.addColorStop(0, "rgba(120,75,18,0)");
+        bg.addColorStop(0.12, "rgba(210,155,38,0.85)");
+        bg.addColorStop(0.5, "rgba(245,195,58,1)");
+        bg.addColorStop(0.88, "rgba(210,155,38,0.85)");
+        bg.addColorStop(1, "rgba(120,75,18,0)");
+        ctx.fillStyle = bg; ctx.fillRect(0, y, width, 5);
+        ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(0, y+5, width, 2);
+      };
+      goldenBar(0); goldenBar(height - 7);
+
+      // ── FLOATING EMBER PARTICLES ──
+      for (let i = 0; i < 50; i++) {
+        const t = ((now * (0.18 + (i%7)*0.02) + i * 0.157) % 1);
+        const ex = ((cx - 140 + i * 41) % (width - 60)) + 30 + Math.sin(now*0.6+i*1.3)*22;
+        const ey = height * 0.97 - t * height * 0.9;
+        const ea = t < 0.1 ? t*10 : (t > 0.82 ? (1-t)/0.18 : 1);
+        ctx.save();
+        ctx.globalAlpha = ea * 0.48;
+        ctx.fillStyle = i%3===0 ? "#ff8820" : (i%3===1 ? "#ffcc50" : "#ff4010");
+        ctx.beginPath(); ctx.arc(ex, ey, 0.8 + (i%3)*0.6, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+
+      // ── TITLE SECTION ──
+      const titleY = height * 0.26;
+      ctx.textAlign = "center";
+      const titleSize = Math.min(74, Math.max(42, width * 0.1));
+
+      // Outer fire glow
+      const tGlow = ctx.createRadialGradient(cx, titleY, 0, cx, titleY, Math.max(200, width * 0.35));
+      tGlow.addColorStop(0, "rgba(200,80,10,0.24)");
+      tGlow.addColorStop(0.4, "rgba(140,40,5,0.1)");
+      tGlow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = tGlow; ctx.fillRect(cx - width*0.4, titleY - 90, width*0.8, 160);
+
+      // Chapter label above title
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = "#c89828";
+      ctx.font = `bold ${Math.min(10, Math.max(8, width*0.014))}px monospace`;
+      ctx.fillText("✦   ULTRAMARINES  ·  II COMPANY  ·  ASSAULT SQUAD   ✦", cx, titleY - 36);
+      ctx.restore();
+
+      // Top separator line
+      drawGoldLine(cx, titleY - 24, Math.min(270, width * 0.38));
+
+      // Title shadow
+      ctx.fillStyle = "rgba(0,0,0,0.85)";
+      ctx.font = `900 ${titleSize}px Arial Black, Impact, Arial`;
+      ctx.fillText("SANG SUB", cx+4, titleY+6);
+
+      // Title dark inner
+      ctx.fillStyle = "#4a2c04";
+      ctx.fillText("SANG SUB", cx, titleY);
+
+      // Title gold gradient
+      const tg = ctx.createLinearGradient(cx - titleSize*2, titleY - titleSize*0.8, cx + titleSize*2, titleY);
+      tg.addColorStop(0,   "#a06010");
+      tg.addColorStop(0.2, "#d8a030");
+      tg.addColorStop(0.42, "#fff0a0");
+      tg.addColorStop(0.58, "#f8d858");
+      tg.addColorStop(0.8, "#c08020");
+      tg.addColorStop(1,   "#8a5010");
+      ctx.fillStyle = tg;
+      ctx.shadowColor = "rgba(230,120,18,0.7)";
+      ctx.shadowBlur = 22;
+      ctx.fillText("SANG SUB", cx, titleY);
+      ctx.shadowBlur = 0;
+
+      // Bottom separator
+      drawGoldLine(cx, titleY + 10, Math.min(200, width * 0.28));
+
+      // Subtitle
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "#d0a030";
+      ctx.font = `bold ${Math.min(10, Math.max(8, width*0.014))}px monospace`;
+      ctx.fillText("◆  FOR THE EMPEROR  ◆  FOR ULTRAMAR  ◆", cx, titleY + 24);
+      ctx.restore();
+
+      // ── ANIMATED SIDE ORNAMENTS ──
+      const ornW = Math.min(60, width * 0.08);
+      const ornX = cx - Math.min(270, width * 0.38) - ornW * 0.5;
+      ctx.save();
+      ctx.globalAlpha = 0.5 + Math.sin(now * 1.2) * 0.1;
+      ctx.fillStyle = "#c89028";
+      ctx.font = `${Math.min(28, height * 0.05)}px serif`;
+      ctx.fillText("⚔", ornX, titleY - 6);
+      ctx.fillText("⚔", width - ornX, titleY - 6);
+      ctx.restore();
+
+      // ── DEPLOY PROMPT ──
+      const blinkA = 0.5 + Math.abs(Math.sin(now * 2.1)) * 0.46;
+      ctx.save();
+      ctx.globalAlpha = blinkA;
+      ctx.fillStyle = "#e8b038";
+      ctx.font = `bold ${Math.min(14, Math.max(11, width*0.02))}px monospace`;
+      ctx.fillText("⬛  TAP  /  CLICK  TO  DEPLOY  ⬛", cx, height * 0.63);
+      ctx.restore();
+
+      // ── GOTHIC CORNER BRACKETS ──
+      const bS = 28;
+      const bOffs = [[10, 10], [width-10-bS, 10], [10, height-10-bS], [width-10-bS, height-10-bS]];
+      ctx.strokeStyle = "rgba(210,155,40,0.7)"; ctx.lineWidth = 2;
+      bOffs.forEach(([bx, by], i) => {
+        const sx = i%2===0 ? 1 : -1, sy = i<2 ? 1 : -1;
+        ctx.beginPath();
+        ctx.moveTo(bx+bS*sx, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by+bS*sy);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(230,170,40,0.75)";
+        ctx.fillRect(bx-2, by-2, 5, 5);
+      });
+
+      // ── BOTTOM STATUS BAR ──
+      ctx.fillStyle = "rgba(0,0,0,0.62)";
+      ctx.fillRect(0, height-20, width, 20);
+      ctx.fillStyle = "rgba(190,128,32,0.6)";
+      ctx.font = "8px monospace"; ctx.textAlign = "left";
+      ctx.fillText("OPERATIONAL  ·  SQUAD: ALPHA  ·  UNIT: SANG-SUB  ·  THEATER: TYRANID INCURSION  ·  CODEX COMPLIANT", 12, height-7);
+
+      // Subtle scan line
+      ctx.save();
+      ctx.globalAlpha = 0.022;
+      ctx.fillStyle = "#c87010";
+      for (let sl = 0; sl < height; sl += 4) ctx.fillRect(0, sl, width, 1.5);
+      ctx.restore();
+
+      drawMenuCastShowcase();
+      drawMenuButton(menuMapToolButton(), "MAP TOOL", false);
+      drawMenuButton(menuCoopButton(), "2P CO-OP", false);
+    }
+
+    function drawGoldLine(cx, y, halfW) {
+      const lg = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+      lg.addColorStop(0, "rgba(150,90,18,0)");
+      lg.addColorStop(0.12, "rgba(220,160,38,0.72)");
+      lg.addColorStop(0.5, "rgba(245,195,56,0.95)");
+      lg.addColorStop(0.88, "rgba(220,160,38,0.72)");
+      lg.addColorStop(1, "rgba(150,90,18,0)");
+      ctx.strokeStyle = lg; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(cx - halfW, y); ctx.lineTo(cx + halfW, y); ctx.stroke();
+    }
+
+    function drawAquilaSymbol(size) {
+      const s = size;
+      ctx.fillStyle = "#c8a028";
+      // Body torso
+      ctx.beginPath();
+      ctx.ellipse(0, s*0.05, s*0.09, s*0.24, 0, 0, Math.PI*2);
+      ctx.fill();
+      // Left wing
+      ctx.beginPath();
+      ctx.moveTo(-s*0.04, -s*0.04);
+      ctx.bezierCurveTo(-s*0.55, -s*0.38, -s*0.92, -s*0.08, -s*0.58, s*0.2);
+      ctx.bezierCurveTo(-s*0.78, s*0.24, -s*0.88, s*0.34, -s*0.62, s*0.38);
+      ctx.bezierCurveTo(-s*0.4, s*0.3, -s*0.22, s*0.12, -s*0.04, s*0.14);
+      ctx.closePath(); ctx.fill();
+      // Right wing
+      ctx.beginPath();
+      ctx.moveTo(s*0.04, -s*0.04);
+      ctx.bezierCurveTo(s*0.55, -s*0.38, s*0.92, -s*0.08, s*0.58, s*0.2);
+      ctx.bezierCurveTo(s*0.78, s*0.24, s*0.88, s*0.34, s*0.62, s*0.38);
+      ctx.bezierCurveTo(s*0.4, s*0.3, s*0.22, s*0.12, s*0.04, s*0.14);
+      ctx.closePath(); ctx.fill();
+      // Left head & beak
+      ctx.beginPath();
+      ctx.ellipse(-s*0.16, -s*0.26, s*0.075, s*0.11, -0.28, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-s*0.22, -s*0.17); ctx.lineTo(-s*0.32, -s*0.12); ctx.lineTo(-s*0.18, -s*0.13);
+      ctx.closePath(); ctx.fill();
+      // Right head & beak
+      ctx.beginPath();
+      ctx.ellipse(s*0.16, -s*0.26, s*0.075, s*0.11, 0.28, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(s*0.22, -s*0.17); ctx.lineTo(s*0.32, -s*0.12); ctx.lineTo(s*0.18, -s*0.13);
+      ctx.closePath(); ctx.fill();
+    }
 
       // 별 (3겹 깊이)
       for (let i = 0; i < 160; i++) {
@@ -3258,35 +3536,99 @@
 
     function drawMenuButton(rect, label, active) {
       const now = performance.now() * 0.001;
+      const x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+      const notch = 8;
       ctx.save();
-      // 버튼 배경
-      ctx.fillStyle = active ? "rgba(0,200,255,0.18)" : "rgba(4,12,28,0.82)";
+
+      if (active) {
+        ctx.shadowColor = "rgba(220,160,30,0.7)";
+        ctx.shadowBlur = 18;
+      }
+
+      // Iron plate background with angled top-right corner
       ctx.beginPath();
-      const r2 = 3;
-      ctx.moveTo(rect.x + r2, rect.y);
-      ctx.lineTo(rect.x + rect.w - 10, rect.y);
-      ctx.lineTo(rect.x + rect.w, rect.y + 10);
-      ctx.lineTo(rect.x + rect.w, rect.y + rect.h);
-      ctx.lineTo(rect.x, rect.y + rect.h);
-      ctx.lineTo(rect.x, rect.y + r2);
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w - notch, y);
+      ctx.lineTo(x + w, y + notch);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
       ctx.closePath();
+      const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
+      if (active) {
+        bgGrad.addColorStop(0, "rgba(80,55,10,0.97)");
+        bgGrad.addColorStop(0.5, "rgba(55,38,6,0.97)");
+        bgGrad.addColorStop(1, "rgba(30,20,4,0.97)");
+      } else {
+        bgGrad.addColorStop(0, "rgba(40,30,8,0.92)");
+        bgGrad.addColorStop(0.5, "rgba(22,16,4,0.92)");
+        bgGrad.addColorStop(1, "rgba(12,8,2,0.92)");
+      }
+      ctx.fillStyle = bgGrad;
       ctx.fill();
-      // 테두리
-      const borderAlpha = active ? 0.9 : (0.45 + Math.sin(now * 2) * 0.1);
-      ctx.strokeStyle = active ? "#00e8ff" : `rgba(0,160,255,${borderAlpha})`;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // 상단 하이라이트
-      ctx.strokeStyle = active ? "rgba(255,255,255,0.6)" : "rgba(0,200,255,0.25)";
-      ctx.lineWidth = 1;
+      ctx.shadowBlur = 0;
+
+      // Gold outer border
       ctx.beginPath();
-      ctx.moveTo(rect.x + r2, rect.y); ctx.lineTo(rect.x + rect.w - 10, rect.y);
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w - notch, y);
+      ctx.lineTo(x + w, y + notch);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.closePath();
+      const pulse = active ? 1 : (0.6 + Math.sin(now * 1.8) * 0.15);
+      ctx.strokeStyle = active ? `rgba(255,200,40,${pulse})` : `rgba(160,120,30,${pulse})`;
+      ctx.lineWidth = active ? 2 : 1.5;
       ctx.stroke();
-      // 텍스트
-      ctx.fillStyle = active ? "#ffffff" : "#80c8f0";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.font = "bold 12px monospace";
-      ctx.fillText("◈ " + label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+
+      // Inner inset line
+      ctx.beginPath();
+      ctx.moveTo(x + 3, y + 3);
+      ctx.lineTo(x + w - notch - 1, y + 3);
+      ctx.lineTo(x + w - 3, y + notch + 1);
+      ctx.lineTo(x + w - 3, y + h - 3);
+      ctx.lineTo(x + 3, y + h - 3);
+      ctx.closePath();
+      ctx.strokeStyle = active ? "rgba(255,220,80,0.35)" : "rgba(180,140,40,0.18)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Red accent stripe on left edge
+      ctx.fillStyle = active ? "rgba(200,40,20,0.85)" : "rgba(140,20,10,0.6)";
+      ctx.fillRect(x, y + 4, 3, h - 8);
+
+      // Top highlight
+      const hlGrad = ctx.createLinearGradient(x, y, x + w, y);
+      hlGrad.addColorStop(0, "rgba(255,210,60,0.28)");
+      hlGrad.addColorStop(1, "rgba(255,210,60,0.04)");
+      ctx.fillStyle = hlGrad;
+      ctx.fillRect(x + 3, y, w - notch - 3, 2);
+
+      // Corner bolt marks
+      const boltColor = active ? "rgba(255,210,50,0.7)" : "rgba(180,140,40,0.45)";
+      for (const [bx, by] of [[x+6,y+h-5],[x+w-notch-4,y+5]]) {
+        ctx.beginPath();
+        ctx.arc(bx, by, 2, 0, Math.PI * 2);
+        ctx.fillStyle = boltColor;
+        ctx.fill();
+      }
+
+      // Label text
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const midX = x + w / 2 + 2, midY = y + h / 2;
+      if (active) {
+        ctx.shadowColor = "rgba(255,180,40,0.9)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#ffe870";
+        ctx.font = "bold 13px serif";
+        ctx.fillText("▶ " + label, midX, midY);
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle = "rgba(200,160,50,0.88)";
+        ctx.font = "bold 12px serif";
+        ctx.fillText("◈ " + label, midX, midY);
+      }
+
       ctx.restore();
     }
 
