@@ -13,9 +13,9 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #050706;
-      color: #e8e3d6;
-      font-family: Arial, sans-serif;
+      background: #020408;
+      color: #c8dff0;
+      font-family: 'Courier New', monospace;
     }
 
     body {
@@ -28,18 +28,19 @@
       display: block;
       width: 100vw;
       height: min(100vh, 56.25vw);
-      background: #18270f;
+      background: #05080f;
       cursor: crosshair;
-      filter: brightness(1.4);
+      filter: brightness(1.25) contrast(1.05);
     }
 
     #loading {
       position: fixed;
       left: 16px;
       bottom: 14px;
-      color: #d8d1bf;
-      font-size: 13px;
-      text-shadow: 0 1px 2px #000;
+      color: #4a8ab0;
+      font-size: 12px;
+      font-family: monospace;
+      text-shadow: 0 0 8px #003060;
       pointer-events: none;
     }
   </style>
@@ -2897,32 +2898,152 @@
     }
 
     function drawMenu() {
-      const bg = ctx.createLinearGradient(0, 0, 0, height);
-      bg.addColorStop(0, "#080a0d");
-      bg.addColorStop(0.55, "#11151a");
-      bg.addColorStop(1, "#050607");
-      ctx.fillStyle = bg;
+      const now = performance.now() * 0.001;
+      const cx = width / 2, cy = height / 2;
+
+      // ── 우주 배경 ──
+      ctx.fillStyle = "#020408";
       ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = "rgba(255,255,255,0.025)";
-      const tile = 74;
-      for (let y = 0; y < height; y += tile) {
-        for (let x = 0; x < width; x += tile) {
-          if (((x / tile) + (y / tile)) % 2 > 0.5) ctx.fillRect(x, y, tile, tile);
+
+      // 별 (3겹 깊이)
+      for (let i = 0; i < 160; i++) {
+        const sx = (i * 1231 + Math.floor(i / 40) * 0.4) % width;
+        const sy = (i * 997) % height;
+        const twinkle = 0.25 + Math.abs(Math.sin(now * (0.8 + i * 0.03) + i * 1.7)) * 0.55;
+        const size = i % 5 === 0 ? 1.5 : (i % 3 === 0 ? 1.0 : 0.6);
+        ctx.globalAlpha = twinkle;
+        ctx.fillStyle = i % 9 === 0 ? "#a8d0ff" : (i % 6 === 0 ? "#ffd0a0" : "#e8eeff");
+        ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // 성운 글로우
+      const neb1 = ctx.createRadialGradient(width * 0.2, height * 0.35, 0, width * 0.25, height * 0.4, width * 0.5);
+      neb1.addColorStop(0, "rgba(20,40,140,0.14)");
+      neb1.addColorStop(0.6, "rgba(60,10,100,0.07)");
+      neb1.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = neb1; ctx.fillRect(0, 0, width, height);
+      const neb2 = ctx.createRadialGradient(width * 0.75, height * 0.6, 0, width * 0.7, height * 0.55, width * 0.4);
+      neb2.addColorStop(0, "rgba(0,80,160,0.1)");
+      neb2.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = neb2; ctx.fillRect(0, 0, width, height);
+
+      // ── 우주선 내부 (화면 하단) ──
+      const panelTop = height * 0.52;
+      // 바닥 패널 그라데이션
+      const floorG = ctx.createLinearGradient(0, panelTop, 0, height);
+      floorG.addColorStop(0, "rgba(6,10,20,0)");
+      floorG.addColorStop(0.2, "rgba(8,12,24,0.9)");
+      floorG.addColorStop(1, "rgba(5,8,16,1)");
+      ctx.fillStyle = floorG; ctx.fillRect(0, panelTop, width, height - panelTop);
+
+      // 바닥 금속 패널 타일
+      const tile = 70;
+      for (let x = 0; x < width; x += tile) {
+        for (let y = Math.floor(panelTop / tile) * tile; y < height; y += tile) {
+          const alpha = Math.max(0, (y - panelTop) / (height - panelTop));
+          ctx.save(); ctx.globalAlpha = alpha * 0.85;
+          ctx.fillStyle = (Math.floor(x/tile)+Math.floor(y/tile))%2 === 0 ? "#0d1220" : "#0a0f1a";
+          ctx.fillRect(x, y, tile - 1, tile - 1);
+          ctx.strokeStyle = "rgba(0,120,255,0.2)"; ctx.lineWidth = 0.5;
+          ctx.strokeRect(x, y, tile - 1, tile - 1);
+          ctx.restore();
         }
       }
-      const vignette = ctx.createRadialGradient(width / 2, height * 0.36, 20, width / 2, height * 0.46, Math.max(width, height) * 0.72);
-      vignette.addColorStop(0, "rgba(180,185,180,0.12)");
-      vignette.addColorStop(0.52, "rgba(0,0,0,0.08)");
-      vignette.addColorStop(1, "rgba(0,0,0,0.78)");
-      ctx.fillStyle = vignette;
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = "#e8e3d6";
+      // 바닥 구조선
+      ctx.strokeStyle = "rgba(0,160,255,0.22)"; ctx.lineWidth = 1;
+      for (let x = 0; x < width; x += tile * 3) {
+        ctx.save(); ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.moveTo(x, panelTop); ctx.lineTo(x, height); ctx.stroke();
+        ctx.restore();
+      }
+
+      // 바닥-우주 경계 발광
+      const horizGlow = ctx.createLinearGradient(0, panelTop - 2, 0, panelTop + 12);
+      horizGlow.addColorStop(0, "rgba(0,180,255,0)");
+      horizGlow.addColorStop(0.4, "rgba(0,180,255,0.35)");
+      horizGlow.addColorStop(1, "rgba(0,80,200,0)");
+      ctx.fillStyle = horizGlow; ctx.fillRect(0, panelTop - 2, width, 14);
+
+      // 사이드 벽 패널 (윈도우 프레임)
+      ctx.save(); ctx.globalAlpha = 0.6;
+      ctx.fillStyle = "#0a0e1a";
+      ctx.fillRect(0, panelTop, 40, height - panelTop);
+      ctx.fillRect(width - 40, panelTop, 40, height - panelTop);
+      ctx.strokeStyle = "rgba(0,160,255,0.5)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(40, panelTop); ctx.lineTo(40, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(width - 40, panelTop); ctx.lineTo(width - 40, height); ctx.stroke();
+      ctx.restore();
+
+      // 스캔라인 오버레이
+      ctx.save(); ctx.globalAlpha = 0.035;
+      ctx.fillStyle = "#0060ff";
+      for (let sl = 0; sl < height; sl += 3) ctx.fillRect(0, sl, width, 1);
+      ctx.restore();
+
+      // ── 타이틀 ──
+      const titleY = height * 0.2;
       ctx.textAlign = "center";
-      ctx.font = "700 56px Arial";
-      ctx.fillText("SANG SUB", width / 2, height * 0.28);
-      ctx.fillStyle = "#f1d477";
-      ctx.font = "700 24px Arial";
-      ctx.fillText("Click or press Enter to play", width / 2, height * 0.58);
+
+      // 타이틀 글로우 헤일로
+      const halo = ctx.createRadialGradient(cx, titleY - 10, 0, cx, titleY - 10, 220);
+      halo.addColorStop(0, "rgba(0,160,255,0.12)");
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = halo; ctx.fillRect(cx - 220, titleY - 80, 440, 120);
+
+      // 그림자
+      ctx.fillStyle = "rgba(0,80,200,0.25)";
+      ctx.font = "900 62px Arial";
+      ctx.fillText("SANG SUB", cx + 3, titleY + 3);
+      // 메인 타이틀 그라데이션
+      const tg = ctx.createLinearGradient(cx - 200, titleY - 50, cx + 200, titleY);
+      tg.addColorStop(0, "#ffffff");
+      tg.addColorStop(0.35, "#d0eeff");
+      tg.addColorStop(0.7, "#80c4f8");
+      tg.addColorStop(1, "#4080c8");
+      ctx.fillStyle = tg;
+      ctx.font = "900 62px Arial";
+      ctx.fillText("SANG SUB", cx, titleY);
+
+      // 부제목
+      ctx.fillStyle = "rgba(0,180,255,0.7)";
+      ctx.font = "bold 11px monospace";
+      ctx.fillText("◆  OPERATION: DEEP SPACE INCURSION  ◆", cx, titleY + 22);
+
+      // 애니메이션 분리선
+      const lineW = 200 + Math.sin(now * 1.8) * 30;
+      ctx.save();
+      const lg = ctx.createLinearGradient(cx - lineW, 0, cx + lineW, 0);
+      lg.addColorStop(0, "rgba(0,180,255,0)");
+      lg.addColorStop(0.3, "rgba(0,220,255,0.8)");
+      lg.addColorStop(0.7, "rgba(0,220,255,0.8)");
+      lg.addColorStop(1, "rgba(0,180,255,0)");
+      ctx.strokeStyle = lg; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx - lineW, titleY + 34); ctx.lineTo(cx + lineW, titleY + 34); ctx.stroke();
+      ctx.restore();
+
+      // ── 플레이 안내 (깜빡임) ──
+      const blinkAlpha = 0.5 + Math.abs(Math.sin(now * 2.2)) * 0.45;
+      ctx.save(); ctx.globalAlpha = blinkAlpha;
+      ctx.fillStyle = "#60c8ff";
+      ctx.font = "bold 14px monospace";
+      ctx.fillText("[ TAP  /  CLICK  TO  DEPLOY ]", cx, height * 0.61);
+      ctx.restore();
+
+      // ── 코너 브래킷 UI ──
+      const bS = 28;
+      ctx.strokeStyle = "rgba(0,180,255,0.5)"; ctx.lineWidth = 2;
+      [[12, 12], [width - 12 - bS, 12], [12, height - 12 - bS], [width - 12 - bS, height - 12 - bS]].forEach(([bx, by], i) => {
+        const sx = i % 2 === 0 ? 1 : -1, sy = i < 2 ? 1 : -1;
+        ctx.beginPath();
+        ctx.moveTo(bx + bS * sx, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + bS * sy);
+        ctx.stroke();
+      });
+
+      // ── 상태 텍스트 (좌하단) ──
+      ctx.fillStyle = "rgba(0,120,200,0.5)"; ctx.font = "9px monospace"; ctx.textAlign = "left";
+      ctx.fillText("SYS: ONLINE  |  UNIT: 1 MARINE  |  SECTOR: DEEP SPACE", 14, height - 14);
+
       drawMenuCastShowcase();
       drawMenuButton(menuMapToolButton(), "MAP TOOL", false);
       drawMenuButton(menuCoopButton(), "2P CO-OP", false);
@@ -3003,18 +3124,36 @@
     }
 
     function drawMenuButton(rect, label, active) {
+      const now = performance.now() * 0.001;
       ctx.save();
-      ctx.fillStyle = active ? "rgba(230, 240, 255, 0.92)" : "rgba(0,0,0,0.5)";
-      ctx.strokeStyle = active ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.28)";
-      ctx.lineWidth = 1.5;
-      roundRect(rect.x, rect.y, rect.w, rect.h, 7);
+      // 버튼 배경
+      ctx.fillStyle = active ? "rgba(0,200,255,0.18)" : "rgba(4,12,28,0.82)";
+      ctx.beginPath();
+      const r2 = 3;
+      ctx.moveTo(rect.x + r2, rect.y);
+      ctx.lineTo(rect.x + rect.w - 10, rect.y);
+      ctx.lineTo(rect.x + rect.w, rect.y + 10);
+      ctx.lineTo(rect.x + rect.w, rect.y + rect.h);
+      ctx.lineTo(rect.x, rect.y + rect.h);
+      ctx.lineTo(rect.x, rect.y + r2);
+      ctx.closePath();
       ctx.fill();
+      // 테두리
+      const borderAlpha = active ? 0.9 : (0.45 + Math.sin(now * 2) * 0.1);
+      ctx.strokeStyle = active ? "#00e8ff" : `rgba(0,160,255,${borderAlpha})`;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.fillStyle = active ? "#10151b" : "#eee5d2";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = "800 15px Arial";
-      ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+      // 상단 하이라이트
+      ctx.strokeStyle = active ? "rgba(255,255,255,0.6)" : "rgba(0,200,255,0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(rect.x + r2, rect.y); ctx.lineTo(rect.x + rect.w - 10, rect.y);
+      ctx.stroke();
+      // 텍스트
+      ctx.fillStyle = active ? "#ffffff" : "#80c8f0";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = "bold 12px monospace";
+      ctx.fillText("◈ " + label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
       ctx.restore();
     }
 
@@ -3127,21 +3266,92 @@
     }
 
     function drawGround() {
-      ctx.fillStyle = "#171a1f";
+      // 우주선 금속 바닥
+      ctx.fillStyle = "#080b11";
       ctx.fillRect(0, 0, world.w, world.h);
-      const tile = 64;
-      for (let y = 0; y < world.h; y += tile) {
-        for (let x = 0; x < world.w; x += tile) {
-          const odd = ((x / tile) + (y / tile)) % 2;
-          ctx.fillStyle = odd ? "#23262c" : "#1d2026";
-          ctx.fillRect(x, y, tile, tile);
+
+      const tile = 80;
+      for (let ty = 0; ty < world.h; ty += tile) {
+        for (let tx = 0; tx < world.w; tx += tile) {
+          const ix = Math.floor(tx / tile), iy = Math.floor(ty / tile);
+          const seed = (ix * 31 + iy * 17) % 100;
+
+          // 패널 베이스 색상 (미세 변화)
+          const base = seed < 12 ? "#0d1118" : (seed < 30 ? "#0b0f16" : "#090c13");
+          ctx.fillStyle = base;
+          ctx.fillRect(tx + 1, ty + 1, tile - 2, tile - 2);
+
+          // 패널 내부 그라데이션 느낌 (상단 하이라이트)
+          ctx.fillStyle = "rgba(60,100,180,0.04)";
+          ctx.fillRect(tx + 2, ty + 2, tile - 4, 8);
+
+          // 종류별 특수 패널
+          if (seed % 16 === 0) {
+            // 환기구 (어두운 격자)
+            ctx.fillStyle = "#050710";
+            ctx.fillRect(tx + 8, ty + 8, tile - 16, tile - 16);
+            // 환기구 격자선
+            ctx.strokeStyle = "rgba(0,180,255,0.2)";
+            ctx.lineWidth = 0.5;
+            for (let g = tx + 16; g < tx + tile - 8; g += 8) {
+              ctx.beginPath(); ctx.moveTo(g, ty + 8); ctx.lineTo(g, ty + tile - 8); ctx.stroke();
+            }
+            for (let g = ty + 16; g < ty + tile - 8; g += 8) {
+              ctx.beginPath(); ctx.moveTo(tx + 8, g); ctx.lineTo(tx + tile - 8, g); ctx.stroke();
+            }
+            // 환기구 발광
+            ctx.fillStyle = "rgba(0,160,255,0.07)";
+            ctx.fillRect(tx + 8, ty + 8, tile - 16, tile - 16);
+          } else if (seed % 23 === 0) {
+            // 경고 마킹 (패널 가장자리 주황 줄무늬)
+            ctx.save();
+            ctx.globalAlpha = 0.22;
+            const stripeW = 6;
+            ctx.fillStyle = "#ff8800";
+            for (let s = 0; s < tile; s += stripeW * 2) {
+              ctx.beginPath();
+              ctx.moveTo(tx + s, ty); ctx.lineTo(tx + s + stripeW, ty);
+              ctx.lineTo(tx + s + stripeW - tile * 0.05, ty + tile);
+              ctx.lineTo(tx + s - tile * 0.05, ty + tile);
+              ctx.closePath(); ctx.fill();
+            }
+            ctx.restore();
+          } else if (seed % 19 === 0) {
+            // 손상된 바닥 (균열)
+            ctx.strokeStyle = "rgba(0,120,200,0.3)";
+            ctx.lineWidth = 0.7;
+            ctx.beginPath();
+            ctx.moveTo(tx + 20, ty + 30); ctx.lineTo(tx + 45, ty + 18); ctx.lineTo(tx + 60, ty + 55);
+            ctx.stroke();
+          }
         }
       }
-      ctx.fillStyle = "rgba(255,255,255,0.018)";
-      for (let i = 0; i < 180; i++) {
-        const x = (i * 997) % world.w;
-        const y = (i * 577) % world.h;
-        ctx.fillRect(x, y, 2 + (i % 7), 1);
+
+      // 패널 경계선 (얇은 청록 발광)
+      ctx.strokeStyle = "rgba(0,140,255,0.14)";
+      ctx.lineWidth = 0.5;
+      for (let y = 0; y < world.h; y += tile) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(world.w, y); ctx.stroke();
+      }
+      for (let x = 0; x < world.w; x += tile) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, world.h); ctx.stroke();
+      }
+
+      // 구조 보강선 (4타일마다 굵은 선)
+      ctx.strokeStyle = "rgba(20,80,180,0.28)";
+      ctx.lineWidth = 1.5;
+      for (let y = 0; y < world.h; y += tile * 4) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(world.w, y); ctx.stroke();
+      }
+      for (let x = 0; x < world.w; x += tile * 4) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, world.h); ctx.stroke();
+      }
+
+      // 바닥 엠비언트 더스트 (먼지 입자)
+      ctx.fillStyle = "rgba(100,160,255,0.04)";
+      for (let i = 0; i < 200; i++) {
+        const x = (i * 1373) % world.w, y = (i * 971) % world.h;
+        ctx.fillRect(x, y, 1 + (i % 3), 1);
       }
     }
 
@@ -3151,15 +3361,76 @@
     }
 
     function drawWall(wall) {
-      ctx.fillStyle = "#050607";
+      const isH = wall.w > wall.h * 1.5;  // 가로 벽
+      const isV = wall.h > wall.w * 1.5;  // 세로 벽
+
+      // 벽 베이스 (깊은 금속 어둠)
+      const wallGrad = ctx.createLinearGradient(wall.x, wall.y, wall.x + (isH ? 0 : wall.w * 0.4), wall.y + (isH ? wall.h * 0.6 : 0));
+      wallGrad.addColorStop(0, "#151b26");
+      wallGrad.addColorStop(0.4, "#0a0d14");
+      wallGrad.addColorStop(1, "#050710");
+      ctx.fillStyle = wallGrad;
       ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
-      ctx.strokeStyle = "#a6abb3";
+
+      // 패널 분할선
+      ctx.strokeStyle = "rgba(30,60,120,0.5)";
+      ctx.lineWidth = 0.8;
+      const panelSize = 72;
+      if (isH) {
+        for (let x = wall.x + panelSize; x < wall.x + wall.w - 4; x += panelSize) {
+          ctx.beginPath(); ctx.moveTo(x, wall.y + 3); ctx.lineTo(x, wall.y + wall.h - 3); ctx.stroke();
+        }
+      } else if (isV) {
+        for (let y = wall.y + panelSize; y < wall.y + wall.h - 4; y += panelSize) {
+          ctx.beginPath(); ctx.moveTo(wall.x + 3, y); ctx.lineTo(wall.x + wall.w - 3, y); ctx.stroke();
+        }
+      }
+
+      // 벽 장착 LED 인디케이터 (파란 점)
+      if (isH && wall.w > 100) {
+        const ledSpacing = 80;
+        for (let x = wall.x + 36; x < wall.x + wall.w - 20; x += ledSpacing) {
+          ctx.fillStyle = "rgba(0,200,255,0.55)";
+          ctx.fillRect(x, wall.y + wall.h - 4, 3, 3);
+        }
+      }
+      if (isV && wall.h > 100) {
+        const ledSpacing = 80;
+        for (let y = wall.y + 36; y < wall.y + wall.h - 20; y += ledSpacing) {
+          ctx.fillStyle = "rgba(0,200,255,0.55)";
+          ctx.fillRect(wall.x + wall.w - 4, y, 3, 3);
+        }
+      }
+
+      // 경고 줄무늬 (벽 하단 좁은 영역)
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = "#ff8800";
+      if (isH) ctx.fillRect(wall.x + 4, wall.y + wall.h - 3, wall.w - 8, 2);
+      else if (isV) ctx.fillRect(wall.x + wall.w - 3, wall.y + 4, 2, wall.h - 8);
+      ctx.restore();
+
+      // 상단 발광 엣지 (밝은 청록 — 천장-벽 경계)
+      ctx.strokeStyle = "rgba(0,200,255,0.75)";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(wall.x, wall.y);
       ctx.lineTo(wall.x + wall.w, wall.y);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+
+      // 측면 엣지
+      ctx.strokeStyle = "rgba(0,140,220,0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(wall.x, wall.y);
+      ctx.lineTo(wall.x, wall.y + wall.h);
+      ctx.moveTo(wall.x + wall.w, wall.y);
+      ctx.lineTo(wall.x + wall.w, wall.y + wall.h);
+      ctx.stroke();
+
+      // 하단 엣지 (약한)
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(wall.x, wall.y + wall.h);
       ctx.lineTo(wall.x + wall.w, wall.y + wall.h);
@@ -3170,22 +3441,57 @@
       if (door.open > 0.92) return;
       const cx = door.x + door.w / 2;
       const cy = door.y + door.h / 2;
+      const isOpen = door.open > 0.05;
       ctx.save();
-      ctx.strokeStyle = door.open > 0.72 ? "rgba(210,230,245,0.18)" : (door.target ? "#d8e8ff" : "#75808b");
-      ctx.lineWidth = 2;
-      ctx.strokeRect(door.x + 1, door.y + 1, door.w - 2, door.h - 2);
-      ctx.fillStyle = door.target ? "rgba(128, 210, 255, 0.75)" : "rgba(255, 255, 255, 0.16)";
-      if (door.axis === "h") {
-        if (door.open < 0.72) ctx.fillRect(cx - 22, door.y - 5, 44 * door.open, 3);
-      } else {
-        if (door.open < 0.72) ctx.fillRect(door.x - 5, cy - 22, 3, 44 * door.open);
-      }
-      drawSplitDoorPanels(door);
-      if (door.open > 0.08 && door.open < 0.94) {
-        ctx.fillStyle = "rgba(145, 203, 255, 0.22)";
+
+      // 에어락 프레임
+      const frameColor = door.target ? "rgba(0,200,255,0.8)" : (isOpen ? "rgba(0,200,120,0.7)" : "rgba(0,140,220,0.55)");
+      ctx.strokeStyle = frameColor;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(door.x, door.y, door.w, door.h);
+
+      // 프레임 코너 브래킷
+      const bc = 6;
+      ctx.strokeStyle = door.target ? "#00ffff" : "#0090e0";
+      ctx.lineWidth = 1.5;
+      const corners = [[door.x, door.y], [door.x + door.w, door.y], [door.x, door.y + door.h], [door.x + door.w, door.y + door.h]];
+      const signs = [[ 1, 1],[-1, 1],[ 1,-1],[-1,-1]];
+      for (let i = 0; i < 4; i++) {
+        const [bx, by] = corners[i]; const [sx, sy] = signs[i];
         ctx.beginPath();
-        ctx.arc(cx, cy, 18 + door.open * 12, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(bx + sx * bc, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + sy * bc);
+        ctx.stroke();
+      }
+
+      // 에어락 패널 (문 판)
+      drawSplitDoorPanels(door);
+
+      // 개방 시 에너지 파동
+      if (isOpen && door.open < 0.92) {
+        const openGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 28 + door.open * 18);
+        openGlow.addColorStop(0, "rgba(0,200,255,0.22)");
+        openGlow.addColorStop(1, "rgba(0,200,255,0)");
+        ctx.fillStyle = openGlow;
+        ctx.beginPath(); ctx.arc(cx, cy, 28 + door.open * 18, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // 문 상태 LED 표시
+      const ledColor = isOpen ? "rgba(0,255,120,0.9)" : (door.target ? "rgba(0,180,255,0.9)" : "rgba(255,60,60,0.9)");
+      ctx.fillStyle = ledColor;
+      const ledSize = 4;
+      ctx.fillRect(cx - ledSize / 2, door.axis === "h" ? door.y - 3 : cy - ledSize / 2,
+        door.axis === "h" ? ledSize : 3, door.axis === "h" ? 3 : ledSize);
+
+      // AIRLOCK 텍스트
+      if (!isOpen) {
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = door.target ? "#00e8ff" : "#6090c0";
+        ctx.font = "bold 7px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("AIRLK", cx, cy);
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -4656,22 +4962,93 @@
     }
 
     function drawHud() {
+      const now = performance.now() * 0.001;
       ctx.textAlign = "left";
-      ctx.fillStyle = "rgba(0,0,0,0.42)";
-      ctx.fillRect(12, 12, 160, 70);
-      bar(22, 20, 120, 9, player.hp / 100, "#9d2520", "#341410");
-      bar(22, 38, 120, 8, skillEnergy, "#c47cf0", "#2a1040");
-      ctx.fillStyle = "#eee5d2";
-      ctx.font = "700 10px Arial";
-      ctx.fillText("HP", 148, 28);
-      ctx.fillText("SKILL", 144, 45);
-      ctx.font = "700 11px Arial";
-      ctx.fillStyle = bombCooldown > 0 ? "#9aa1aa" : "#f4d89a";
-      ctx.fillText("Q Bomb", 22, 58);
-      const wColors = ["#ffd776", "#ff9944", "#88ccff", "#ff8844"];
-      const wNames = ["[Tab] 소총", "[Tab] 산탄총", "[Tab] 마취총", "[Tab] 폭탄"];
-      ctx.fillStyle = wColors[currentWeapon] || "#ffd776";
-      ctx.fillText(wNames[currentWeapon] || "", 22, 74);
+
+      // HUD 패널 (각진 군사 스타일)
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(10, 10);
+      ctx.lineTo(186, 10);
+      ctx.lineTo(192, 16);
+      ctx.lineTo(192, 90);
+      ctx.lineTo(10, 90);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(2,6,14,0.88)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,160,255,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+
+      // 스캔라인 애니메이션
+      ctx.save();
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = "#00c8ff";
+      const scanY = 10 + ((now * 55) % 82);
+      ctx.fillRect(11, scanY, 180, 2);
+      ctx.restore();
+
+      // HP 바
+      const hpRatio = Math.max(0, player.hp / 100);
+      const hpColor = hpRatio > 0.5 ? "#22e870" : (hpRatio > 0.25 ? "#f0a020" : "#e83020");
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(22, 18, 138, 10);
+      ctx.fillStyle = "#040c0a"; ctx.fillRect(23, 19, 136, 8);
+      // HP 바 블록 스타일
+      const hpW = Math.floor(hpRatio * 136);
+      for (let hx = 0; hx < hpW; hx += 5) {
+        ctx.fillStyle = hpColor;
+        ctx.globalAlpha = 0.9 + Math.sin(now * 3 + hx * 0.1) * 0.08;
+        ctx.fillRect(23 + hx, 19, Math.min(4, hpW - hx), 8);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(0,200,255,0.3)"; ctx.lineWidth = 0.8;
+      ctx.strokeRect(22, 18, 138, 10);
+      ctx.fillStyle = hpColor; ctx.font = "bold 9px monospace";
+      ctx.fillText("■ HP " + Math.ceil(player.hp) + "%", 22, 16);
+      ctx.restore();
+
+      // 스킬 에너지 바
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(22, 36, 138, 9);
+      const skillColor = skillEnergy >= 1 ? "#ff60ff" : "#a040e0";
+      const skillW = Math.floor(skillEnergy * 136);
+      for (let sx = 0; sx < skillW; sx += 4) {
+        const pulse = skillEnergy >= 1 ? (0.7 + Math.abs(Math.sin(now * 8 + sx * 0.15)) * 0.3) : 0.85;
+        ctx.fillStyle = skillColor; ctx.globalAlpha = pulse;
+        ctx.fillRect(23 + sx, 37, Math.min(3, skillW - sx), 7);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(180,0,255,0.35)"; ctx.lineWidth = 0.8;
+      ctx.strokeRect(22, 36, 138, 9);
+      ctx.fillStyle = skillEnergy >= 1 ? "#ff80ff" : "#9060d0";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("◈ PWR " + Math.floor(skillEnergy * 100) + "%", 22, 34);
+      ctx.restore();
+
+      // 무기 표시
+      const wColors = ["#ffd060", "#ff8040", "#40d0ff", "#ff6030"];
+      const wNames = ["RIFLE", "SHOTGN", "TASER", "BOMB"];
+      const wIcons = ["▸", "▸▸", "⚡", "◉"];
+      ctx.fillStyle = wColors[currentWeapon] || "#ffd060";
+      ctx.font = "bold 11px monospace";
+      ctx.fillText(wIcons[currentWeapon] + " " + wNames[currentWeapon], 22, 58);
+
+      // 폭탄 상태
+      ctx.fillStyle = bombCooldown > 0 ? "rgba(100,120,160,0.7)" : "#60a8d0";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("[Q]BOMB " + (bombCooldown > 0 ? "·" + Math.ceil(bombCooldown * 10) / 10 + "s" : "READY"), 22, 72);
+
+      // HUD 코너 장식
+      ctx.strokeStyle = "rgba(0,180,255,0.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(10, 22); ctx.lineTo(10, 10); ctx.lineTo(22, 10); ctx.stroke();
+
+      // Wave / Kill 표시 (우상단 HUD 아래)
+      ctx.fillStyle = "rgba(0,120,200,0.7)"; ctx.font = "bold 9px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText("WAVE " + wave, 192, 86);
+      ctx.textAlign = "left";
       // 정지 시 개틀링 충전 인디케이터
       if (stationaryTimer > 0 && stationaryTimer < 1.0 && !autoGatling && !skillActive) {
         const cx = player.x * camera.zoom - camera.x * camera.zoom + (camera.x > 0 ? 0 : 0);
@@ -4736,19 +5113,42 @@
     }
 
     function drawSkillButton() {
-      const bx = width / 2 - 36, by = height - 58;
+      const now = performance.now() * 0.001;
+      const bx = width / 2 - 44, by = height - 62;
+      const bw = 88, bh = 42;
       ctx.save();
-      ctx.fillStyle = "rgba(180,100,255,0.85)";
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 1.5;
-      roundRect(bx, by, 72, 36, 8);
+      // 발광 헤일로
+      const pulse = 0.5 + Math.abs(Math.sin(now * 4)) * 0.5;
+      ctx.globalAlpha = pulse * 0.3;
+      ctx.fillStyle = "#ff40ff";
+      ctx.beginPath(); ctx.arc(bx + bw / 2, by + bh / 2, 40, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      // 버튼 패널
+      ctx.fillStyle = `rgba(60,0,80,0.9)`;
+      ctx.beginPath();
+      ctx.moveTo(bx + 8, by); ctx.lineTo(bx + bw - 8, by);
+      ctx.lineTo(bx + bw, by + 8); ctx.lineTo(bx + bw, by + bh - 8);
+      ctx.lineTo(bx + bw - 8, by + bh); ctx.lineTo(bx + 8, by + bh);
+      ctx.lineTo(bx, by + bh - 8); ctx.lineTo(bx, by + 8); ctx.closePath();
       ctx.fill();
+      // 테두리 (펄스)
+      const bc = `rgba(220,60,255,${0.7 + pulse * 0.3})`;
+      ctx.strokeStyle = bc; ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.fillStyle = "#fff";
-      ctx.font = "700 14px Arial";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("SKILL", bx + 36, by + 18);
+      // 내부 에너지 패턴
+      ctx.save(); ctx.globalAlpha = 0.4;
+      const eg = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+      eg.addColorStop(0, "#ff00ff"); eg.addColorStop(1, "#8800ff");
+      ctx.fillStyle = eg;
+      ctx.beginPath(); ctx.arc(bx + bw / 2, by + bh / 2, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      // 텍스트
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 13px monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.shadowColor = "#ff00ff"; ctx.shadowBlur = 8;
+      ctx.fillText("⚡ SKILL", bx + bw / 2, by + bh / 2);
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
 
@@ -4940,16 +5340,81 @@
     }
 
     function drawDeath() {
-      ctx.fillStyle = "rgba(0,0,0,0.62)";
+      const now = performance.now() * 0.001;
+      // 어두운 오버레이
+      ctx.fillStyle = "rgba(0,0,0,0.72)";
       ctx.fillRect(0, 0, width, height);
+
+      // 빨간 비상 글로우
+      const redGlow = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, width * 0.7);
+      redGlow.addColorStop(0, "rgba(200,0,0,0.18)");
+      redGlow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = redGlow; ctx.fillRect(0, 0, width, height);
+
+      // 경고 스캔라인
+      ctx.save(); ctx.globalAlpha = 0.06;
+      ctx.fillStyle = "#ff0000";
+      for (let sl = 0; sl < height; sl += 2) ctx.fillRect(0, sl, width, 1);
+      ctx.restore();
+
+      // 글리치 효과 (노이즈 블록)
+      ctx.save(); ctx.globalAlpha = 0.12;
+      for (let g = 0; g < 5; g++) {
+        const gx = Math.sin(now * 10 + g * 2.1) * width * 0.4 + width * 0.5;
+        const gy = Math.cos(now * 8 + g * 1.7) * height * 0.3 + height * 0.5;
+        ctx.fillStyle = g % 2 === 0 ? "#ff0000" : "#ffffff";
+        ctx.fillRect(gx, gy, 120 + g * 18, 4);
+      }
+      ctx.restore();
+
+      // 패널 배경
+      const pw = Math.min(440, width * 0.65), ph = 180;
+      const px = (width - pw) / 2, py = height / 2 - ph / 2;
+      ctx.save();
+      ctx.fillStyle = "rgba(10,2,2,0.9)";
+      ctx.strokeStyle = "rgba(220,30,30,0.8)"; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px + 12, py); ctx.lineTo(px + pw - 12, py);
+      ctx.lineTo(px + pw, py + 12); ctx.lineTo(px + pw, py + ph - 12);
+      ctx.lineTo(px + pw - 12, py + ph); ctx.lineTo(px + 12, py + ph);
+      ctx.lineTo(px, py + ph - 12); ctx.lineTo(px, py + 12); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // 패널 상단 빨간 바
+      ctx.fillStyle = "rgba(200,20,20,0.8)";
+      ctx.fillRect(px + 12, py, pw - 24, 3);
+      ctx.restore();
+
+      // MISSION FAILED
       ctx.textAlign = "center";
-      ctx.fillStyle = "#e5ddd0";
-      ctx.font = "700 52px Arial";
-      ctx.fillText("YOU DIED", width / 2, height / 2 - 28);
-      ctx.font = "20px Arial";
-      ctx.fillText("Kills: " + kills + "  Wave: " + wave, width / 2, height / 2 + 16);
-      ctx.fillStyle = "#f1d477";
-      ctx.fillText("Click or press Enter to restart", width / 2, height / 2 + 58);
+      const flashAlpha = 0.8 + Math.abs(Math.sin(now * 3)) * 0.2;
+      ctx.save(); ctx.globalAlpha = flashAlpha;
+      ctx.fillStyle = "#ff2020";
+      ctx.font = "900 42px Arial";
+      ctx.shadowColor = "#ff0000"; ctx.shadowBlur = 20;
+      ctx.fillText("MISSION FAILED", width / 2, py + 55);
+      ctx.shadowBlur = 0; ctx.restore();
+
+      // 구분선
+      ctx.strokeStyle = "rgba(200,30,30,0.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(px + 30, py + 70); ctx.lineTo(px + pw - 30, py + 70); ctx.stroke();
+
+      // 통계
+      ctx.fillStyle = "#a0b8c8"; ctx.font = "bold 13px monospace";
+      ctx.fillText("KILLS: " + kills + "   |   WAVE: " + wave, width / 2, py + 96);
+
+      // 재시작
+      const blinkA = 0.5 + Math.abs(Math.sin(now * 2.5)) * 0.5;
+      ctx.save(); ctx.globalAlpha = blinkA;
+      ctx.fillStyle = "#60c0d8"; ctx.font = "bold 13px monospace";
+      ctx.fillText("[ TAP / CLICK TO REDEPLOY ]", width / 2, py + 140);
+      ctx.restore();
+
+      // 코너 디테일
+      ctx.strokeStyle = "rgba(180,30,30,0.6)"; ctx.lineWidth = 1.5;
+      [[px+2,py+2],[px+pw-2,py+2],[px+2,py+ph-2],[px+pw-2,py+ph-2]].forEach(([bx,by],i) => {
+        const sx = i%2===0?1:-1, sy = i<2?1:-1;
+        ctx.beginPath(); ctx.moveTo(bx+sx*14,by); ctx.lineTo(bx,by); ctx.lineTo(bx,by+sy*14); ctx.stroke();
+      });
     }
 
     function handleTouchStart(event) {
@@ -6141,23 +6606,47 @@
     }
 
     function drawLobby() {
-      const bg = ctx.createLinearGradient(0, 0, 0, height);
-      bg.addColorStop(0, "#050a12");
-      bg.addColorStop(1, "#020608");
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = "rgba(255,255,255,0.018)";
+      const now = performance.now() * 0.001;
+      // 배경 (메뉴와 유사한 우주 배경)
+      ctx.fillStyle = "#020408"; ctx.fillRect(0, 0, width, height);
+      // 별
+      for (let i = 0; i < 80; i++) {
+        const sx = (i * 1231) % width, sy = (i * 997) % height;
+        const tw = 0.2 + Math.abs(Math.sin(now * 0.9 + i)) * 0.35;
+        ctx.globalAlpha = tw; ctx.fillStyle = "#c0d8ff";
+        ctx.beginPath(); ctx.arc(sx, sy, i%5===0?1.2:0.6, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // 스캔라인
+      ctx.save(); ctx.globalAlpha = 0.025; ctx.fillStyle = "#0060ff";
+      for (let sl = 0; sl < height; sl += 3) ctx.fillRect(0, sl, width, 1);
+      ctx.restore();
+      // 터미널 패널 배경
       const tile = 64;
       for (let y = 0; y < height; y += tile)
-        for (let x = 0; x < width; x += tile)
-          if (((x / tile) + (y / tile)) % 2 > 0.5) ctx.fillRect(x, y, tile, tile);
+        for (let x = 0; x < width; x += tile) {
+          ctx.save(); ctx.globalAlpha = 0.06;
+          ctx.fillStyle = (Math.floor(x/tile)+Math.floor(y/tile))%2===0 ? "#0a1020":"#080c18";
+          ctx.fillRect(x, y, tile-1, tile-1); ctx.restore();
+        }
+      // 터미널 헤더
       ctx.textAlign = "center";
-      ctx.fillStyle = "#88ccff";
-      ctx.font = "bold " + Math.round(Math.min(36, width * 0.056)) + "px Arial";
-      ctx.fillText("2인 협동 모드", width / 2, height * 0.19);
-      ctx.fillStyle = "rgba(150,190,230,0.6)";
-      ctx.font = Math.round(Math.min(14, width * 0.024)) + "px Arial";
-      ctx.fillText("Co-op Multiplayer · PeerJS WebRTC", width / 2, height * 0.27);
+      ctx.fillStyle = "rgba(0,180,255,0.55)"; ctx.font = "9px monospace";
+      ctx.fillText("▸ DEEP SPACE TACTICAL NETWORK ◂", width/2, height * 0.1);
+      const lineG = ctx.createLinearGradient(width*0.2,0,width*0.8,0);
+      lineG.addColorStop(0,"rgba(0,160,255,0)");lineG.addColorStop(0.5,"rgba(0,200,255,0.5)");lineG.addColorStop(1,"rgba(0,160,255,0)");
+      ctx.strokeStyle = lineG; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(width*0.2,height*0.12); ctx.lineTo(width*0.8,height*0.12); ctx.stroke();
+
+      const titleSz = Math.round(Math.min(32, width * 0.05));
+      const titleG2 = ctx.createLinearGradient(0, height*0.16, 0, height*0.22);
+      titleG2.addColorStop(0,"#80d8ff"); titleG2.addColorStop(1,"#4090c8");
+      ctx.fillStyle = titleG2;
+      ctx.font = "bold " + titleSz + "px monospace";
+      ctx.fillText("◈ 2-PLAYER CO-OP MODE ◈", width / 2, height * 0.19);
+      ctx.fillStyle = "rgba(0,160,220,0.55)";
+      ctx.font = Math.round(Math.min(11, width * 0.018)) + "px monospace";
+      ctx.fillText("SECURE CHANNEL  ·  P2P WebRTC  ·  AES-256", width / 2, height * 0.26);
       if (!mp.role) {
         ctx.fillStyle = "rgba(200,220,240,0.65)";
         ctx.font = Math.round(Math.min(14, width * 0.023)) + "px Arial";
@@ -6222,29 +6711,27 @@
     }
 
     function drawLobbyBtn(rect, label, bgColor, fgColor) {
+      const now = performance.now() * 0.001;
       ctx.save();
-      ctx.fillStyle = bgColor;
-      ctx.strokeStyle = fgColor;
-      ctx.lineWidth = 2;
       const { x, y, w, h } = rect;
-      const r = Math.min(10, h * 0.3);
+      const chamfer = Math.min(8, h * 0.2);
+      // 버튼 배경 (각진 sci-fi 스타일)
+      ctx.fillStyle = bgColor;
       ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      ctx.moveTo(x + chamfer, y); ctx.lineTo(x + w - chamfer, y);
+      ctx.lineTo(x + w, y + chamfer); ctx.lineTo(x + w, y + h - chamfer);
+      ctx.lineTo(x + w - chamfer, y + h); ctx.lineTo(x + chamfer, y + h);
+      ctx.lineTo(x, y + h - chamfer); ctx.lineTo(x, y + chamfer);
+      ctx.closePath(); ctx.fill();
+      // 테두리
+      ctx.strokeStyle = fgColor; ctx.lineWidth = 1.5; ctx.stroke();
+      // 상단 하이라이트
+      ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x + chamfer, y); ctx.lineTo(x + w - chamfer, y); ctx.stroke();
+      // 텍스트
       ctx.fillStyle = fgColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = "bold " + Math.round(Math.min(17, h * 0.42)) + "px Arial";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = "bold " + Math.round(Math.min(15, h * 0.38)) + "px monospace";
       ctx.fillText(label, x + w / 2, y + h / 2);
       ctx.restore();
     }
