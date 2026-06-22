@@ -5877,8 +5877,6 @@
           return;
         }
       if (state !== "play") continue;
-      if (handleGameMenuButtonClick(p.x, p.y)) return;
-      if (handleSpecialForcesToggleClick(p.x, p.y)) return;
       const action = mobileActionAt(p.x, p.y);
         if (action === "bomb") {
           currentWeapon = 3; // 폭탄 무기로 전환
@@ -5886,6 +5884,10 @@
           mobileControls.dodge = true;
         } else if (action === "swap") {
           mobileControls.swap = true;
+        } else if (handleGameMenuButtonClick(p.x, p.y)) {
+          return;
+        } else if (handleSpecialForcesToggleClick(p.x, p.y)) {
+          return;
         } else if (p.x < width * 0.46 && mobileControls.moveId === null) {
           mobileControls.moveId = touch.identifier;
           updateMobileStick(p.x, p.y);
