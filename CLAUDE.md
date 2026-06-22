@@ -73,13 +73,17 @@ ParkMura/sang-sub-game 저장소의 CLAUDE.md 읽고 게임 작업 이어서 해
 | 42 | 홀로그래픽 HUD | 각진 패널+블록 HP바+스캔라인+Wave 표시 |
 | 43 | MISSION FAILED 화면 | 빨간 비상 글로우+글리치 블록+각진 패널+깜빡임 |
 | 44 | 코드 화면 sci-fi | SECURE CHANNEL 터미널+각진 버튼+monospace 폰트 |
+| 45 | 벽 뒤 적 숨기기 | `hasLOS()` ray-march → `drawEnemy()` 첫줄 return |
+| 46 | 소총 탄약 35발 | `rifleAmmo`, `rifleReloadTimer`, 1.5초 재장전 |
+| 47 | 산탄총 2발+스플래시 | `shotgunAmmo`, 1초 재장전, 55px 반경 20dmg 스플래시 |
+| 48 | 마취총 5발 | `taserAmmo`, `taserReloadTimer`, 1.5초 재장전 |
+| 49 | 벽 모서리 파손 | `wallCornerDmg` WeakMap, `hitWallCorner()`, `drawWall()` clip |
+| 50 | HUD 탄약 표시 | 탄약수/재장전 타이머 HUD 패널에 표시 |
 
 ## 미구현 (요청됨)
 - 브롤스타즈식 사선 시야
 - 주소창 숨기기
-- 산탄총 데미지 이미 반영됨 (+30%)
 - 카메라 추적속도 개선
-- 벽 뒤 적 안보이게
 
 ## 작업 후 반드시 할 것
 수정이 끝나면 이 CLAUDE.md의 **"현재 적용된 수정사항"** 표를 업데이트하고 push할 것.
