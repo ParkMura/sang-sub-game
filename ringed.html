@@ -1641,6 +1641,14 @@
             burst(e.x, e.y, "#88ccff", 8);
           }
         }
+        // 팀배틀: 적팀 AI도 마취
+        for (const ai of aiPlayers) {
+          if (!ai.alive || ai.team === playerTeam) continue;
+          if (Math.hypot(ai.x - player.x, ai.y - player.y) < stunR) {
+            ai.stunTimer = 3.0;
+            burst(ai.x, ai.y, "#88ccff", 8);
+          }
+        }
         skillEnergy = 0;
         speechBubbles.push({ x: player.x, y: player.y - 40, text: "STUN AURA!", life: 1.5, maxLife: 1.5, screen: true });
       } else if (st === "homing_missiles") {
@@ -1666,7 +1674,10 @@
       } else if (st === "drone_laser") {
         // VIPER: 캐릭터 등뒤 → 가까운 적 4명 머리 위로 순차 비행 → 레이저
         skillEnergy = 0;
-        const sorted = enemies.slice().sort((a, b) =>
+        const dronePool = gameMode === "teambattle"
+          ? aiPlayers.filter(ai => ai.alive && ai.team !== playerTeam)
+          : enemies.slice();
+        const sorted = dronePool.sort((a, b) =>
           Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y)
         );
         const targets = sorted.slice(0, Math.min(4, sorted.length));
@@ -1718,10 +1729,15 @@
       addBlastLight(x, y, radius);
       playSfx("flamer", 0.8);
       burstVisible(x, y, "#ffe880", 28, radius);
-      for (const enemy of enemies) {
+      const mortarAllTargets = [...enemies,
+        ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+      for (const enemy of mortarAllTargets) {
         const d = Math.hypot(enemy.x - x, enemy.y - y);
         if (d <= radius && hasExplosionLineOfSight(x, y, enemy.x, enemy.y, d)) {
-          enemy.hp -= (360 * (1 - d / radius) + 180) * (rageActive ? 2 : 1);
+          const dmgM = (360 * (1 - d / radius) + 180) * (rageActive ? 2 : 1);
+          enemy.hp -= dmgM;
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          skillEnergy = Math.min(1, skillEnergy + dmgM / 1000);
           burst(enemy.x, enemy.y, "#ffcc44", 6);
         }
       }
@@ -1735,10 +1751,15 @@
       addBlastLight(x, y, radius);
       playSfx("flamer", 1.2);
       burstVisible(x, y, "#40c8ff", 60, radius);
-      for (const enemy of enemies) {
+      const missileAllTargets = [...enemies,
+        ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+      for (const enemy of missileAllTargets) {
         const d = Math.hypot(enemy.x - x, enemy.y - y);
         if (d <= radius && hasExplosionLineOfSight(x, y, enemy.x, enemy.y, d)) {
-          enemy.hp -= (1800 * (1 - d / radius) + 900) * (rageActive ? 2 : 1);
+          const dmgMi = (1800 * (1 - d / radius) + 900) * (rageActive ? 2 : 1);
+          enemy.hp -= dmgMi;
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          skillEnergy = Math.min(1, skillEnergy + dmgMi / 1000);
           burst(enemy.x, enemy.y, "#80e8ff", 10);
         }
       }
@@ -1790,10 +1811,15 @@
         shake = Math.max(shake, 12);
         return;
       }
-      for (const enemy of enemies) {
+      const bombAllTargets = [...enemies,
+        ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+      for (const enemy of bombAllTargets) {
         const d = Math.hypot(enemy.x - bomb.x, enemy.y - bomb.y);
         if (d <= radius && hasExplosionLineOfSight(bomb.x, bomb.y, enemy.x, enemy.y, d)) {
-          enemy.hp -= 180 * (1 - d / radius) + 90;
+          const dmgB = 180 * (1 - d / radius) + 90;
+          enemy.hp -= dmgB;
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          skillEnergy = Math.min(1, skillEnergy + dmgB / 1000);
           burst(enemy.x, enemy.y, "#d8e8ff", 6);
         }
       }
@@ -2224,6 +2250,10 @@
           sendStateToClient();
         }
       }
+      // 패시브 스킬 에너지: 초당 1%
+      if (!skillActive && !missileCharging && skillEnergy < 1) {
+        skillEnergy = Math.min(1, skillEnergy + dt * 0.01);
+      }
       if (skillActive) {
         skillTimer -= dt;
         if (skillTimer <= 0) { skillActive = false; skillEnergy = 0; }
@@ -2237,6 +2267,7 @@
             const hit = raycastShot(sx, sy, dx, dy, 1200);
             tracers.push({ x1: sx, y1: sy, x2: hit.x, y2: hit.y, life: 0.07, maxLife: 0.07 });
             if (hit.enemy) { hit.enemy.hp -= 28; burst(hit.x, hit.y, "#9f2a24", 4); }
+            else if (gameMode === "teambattle") applyTBHit(hit, 28);
             else if (hit.solid) burst(hit.x, hit.y, "#f4efe8", 3);
           }
           flashes.push({ x: player.x + Math.cos(player.angle) * 20, y: player.y + Math.sin(player.angle) * 20, angle: player.angle, life: 0.06, maxLife: 0.06 });
@@ -2261,6 +2292,7 @@
           const hit = raycastShot(gsx, gsy, Math.cos(ga), Math.sin(ga), 1100);
           tracers.push({ x1: gsx, y1: gsy, x2: hit.x, y2: hit.y, life: 0.07, maxLife: 0.07 });
           if (hit.enemy) { hit.enemy.hp -= 22; burst(hit.x, hit.y, "#ffa040", 3); skillEnergy = Math.min(1, skillEnergy + 0.05); }
+          else if (gameMode === "teambattle") applyTBHit(hit, 22);
           else if (hit.solid) burst(hit.x, hit.y, "#f4efe8", 2);
           flashes.push({ x: gsx + gdx * 12, y: gsy + gdy * 12, angle: player.angle, life: 0.05, maxLife: 0.05 });
           playSfx("playerGun", 0.5 + Math.random() * 0.15);
@@ -2332,7 +2364,7 @@
           healAuraTimer += dt;
           if (healAuraTimer >= 1.0) {
             healAuraTimer = 0;
-            const maxHp = Math.round(100 * playerChar.hpMult);
+            const maxHp = gameMode === "teambattle" ? playerChar.tbHp : Math.round(100 * playerChar.hpMult);
             player.hp = Math.min(maxHp, player.hp + Math.round(maxHp * 0.1));
           }
         } else { healAuraTimer = 0; }
@@ -2420,11 +2452,14 @@
           hm.vy = Math.sin(tangent) * HOMING_SPD;
           // 공전 중 적에 닿으면 폭발 (벽 충돌 검사는 제외)
           let orbitHit = false;
-          for (let j = enemies.length - 1; j >= 0; j--) {
-            const e = enemies[j];
+          const hmAllTargets = [...enemies,
+            ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+          for (const e of hmAllTargets) {
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
-              e.hp -= 150 * (rageActive ? 2 : 1);
-              skillEnergy = Math.min(1, skillEnergy + 0.1);
+              const dmgH = 150 * (rageActive ? 2 : 1);
+              e.hp -= dmgH;
+              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
+              skillEnergy = Math.min(1, skillEnergy + dmgH / 1000);
               burst(hm.x, hm.y, "#ff8800", 10);
               burst(hm.x, hm.y, "#ffdd00", 7);
               shake = Math.max(shake, 3);
@@ -2435,7 +2470,9 @@
         } else {
           // ── 유도 단계: 플레이어에게 가장 가까운 적으로 수렴 ──
           let bestEnemy = null, bestDist = Infinity;
-          for (const e of enemies) {
+          const hmTargets = [...enemies,
+            ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+          for (const e of hmTargets) {
             const d = Math.hypot(e.x - player.x, e.y - player.y);
             if (d < bestDist) { bestDist = d; bestEnemy = e; }
           }
@@ -2459,11 +2496,14 @@
           hm.y += hm.vy * dt;
           // 유도 중 충돌 판정 (벽 포함)
           let hit = false;
-          for (let j = enemies.length - 1; j >= 0; j--) {
-            const e = enemies[j];
+          const hmTargets2 = [...enemies,
+            ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
+          for (const e of hmTargets2) {
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
-              e.hp -= 150 * (rageActive ? 2 : 1);
-              skillEnergy = Math.min(1, skillEnergy + 0.1);
+              const dmgHM = 150 * (rageActive ? 2 : 1);
+              e.hp -= dmgHM;
+              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
+              skillEnergy = Math.min(1, skillEnergy + dmgHM / 1000);
               burst(hm.x, hm.y, "#ff8800", 10);
               burst(hm.x, hm.y, "#ffdd00", 7);
               burst(hm.x, hm.y, "#ff4400", 5);
@@ -2507,9 +2547,13 @@
           if (dr.hoverTimer <= 0) {
             dr.phase = "firing";
             dr.laserTimer = 0.4;
-            if (enemies.includes(dr.target)) {
-              dr.target.hp -= 200 * (rageActive ? 2 : 1);
-              skillEnergy = Math.min(1, skillEnergy + 0.15);
+            const dmgAmt = 200 * (rageActive ? 2 : 1);
+            const isValidEnemy = enemies.includes(dr.target) ||
+              (gameMode === "teambattle" && aiPlayers.includes(dr.target) && dr.target.alive && dr.target.team !== playerTeam);
+            if (isValidEnemy) {
+              dr.target.hp -= dmgAmt;
+              if (dr.target.alive !== undefined && dr.target.hp <= 0) { dr.target.hp = 0; dr.target.alive = false; }
+              skillEnergy = Math.min(1, skillEnergy + dmgAmt / 1000);
               groundBurns.push({ x: dr.target.x, y: dr.target.y, life: 2.2, maxLife: 2.2 });
               burst(dr.x, dr.target.y, "#00ffcc", 8);
               burst(dr.x, dr.target.y, "#ffffff", 5);
@@ -8764,6 +8808,13 @@
       for (const ai of aiPlayers) {
         if (!ai.alive) continue;
 
+        // MEDIC 스턴 오라 적용 시 멈춤
+        if (ai.stunTimer > 0) {
+          ai.stunTimer -= dt;
+          ai.isMoving = false;
+          continue;
+        }
+
         // 타겟 선정: 적 플레이어 → 적 AI → 적 기지
         let target = null, bestDist = Infinity;
         if (ai.team !== playerTeam && player.hp > 0) {
@@ -8885,14 +8936,17 @@
     function applyTBHit(hit, dmg) {
       if (!hit||gameMode!=="teambattle") return;
       if (hit.aiPlayer) {
-        hit.aiPlayer.hp-=dmg; burst(hit.x,hit.y,"#ffaa44",5);
-        if (hit.aiPlayer.hp<=0){hit.aiPlayer.hp=0;hit.aiPlayer.alive=false;}
+        if (hit.aiPlayer.team === playerTeam) return; // 아군 AI는 피격 제외
+        hit.aiPlayer.hp -= dmg; burst(hit.x, hit.y, "#ffaa44", 5);
+        skillEnergy = Math.min(1, skillEnergy + dmg / 1000);
+        if (hit.aiPlayer.hp <= 0) { hit.aiPlayer.hp = 0; hit.aiPlayer.alive = false; }
       } else if (hit.facility) {
-        hit.facility.hp=Math.max(0,hit.facility.hp-dmg);
-        burst(hit.x,hit.y,hit.facility.team===1?"#ff6644":"#4488ff",5);
+        hit.facility.hp = Math.max(0, hit.facility.hp - dmg);
+        burst(hit.x, hit.y, hit.facility.team === 1 ? "#ff6644" : "#4488ff", 5);
+        skillEnergy = Math.min(1, skillEnergy + dmg / 2000);
       } else if (hit.crate) {
-        hit.crate.hp-=dmg; burst(hit.x,hit.y,"#c8a030",4);
-        if (hit.crate.hp<=0){hit.crate.dead=true; pickups.push({x:hit.crate.x,y:hit.crate.y,r:17,type:"heal",life:8,pulse:0});}
+        hit.crate.hp -= dmg; burst(hit.x, hit.y, "#c8a030", 4);
+        if (hit.crate.hp <= 0) { hit.crate.dead = true; pickups.push({ x: hit.crate.x, y: hit.crate.y, r: 17, type: "heal", life: 8, pulse: 0 }); }
       }
     }
 
