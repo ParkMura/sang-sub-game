@@ -7099,10 +7099,12 @@
       ctx.beginPath(); ctx.moveTo(10, 22); ctx.lineTo(10, 10); ctx.lineTo(22, 10); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(10, 98); ctx.lineTo(10, 100); ctx.lineTo(22, 100); ctx.stroke();
 
-      // Wave / Kill 표시 (우상단 HUD 아래)
-      ctx.fillStyle = "rgba(0,120,200,0.7)"; ctx.font = "bold 9px monospace";
-      ctx.textAlign = "right";
-      ctx.fillText("WAVE " + wave, 192, 96);
+      // Wave / Kill 표시 (클래식 모드만)
+      if (gameMode!=="teambattle") {
+        ctx.fillStyle = "rgba(0,120,200,0.7)"; ctx.font = "bold 9px monospace";
+        ctx.textAlign = "right";
+        ctx.fillText("WAVE " + wave, 192, 96);
+      }
       ctx.textAlign = "left";
       // 정지 시 개틀링 충전 인디케이터
       if (stationaryTimer > 0 && stationaryTimer < 1.0 && !autoGatling && !skillActive) {
@@ -8634,59 +8636,85 @@
     }
 
     function buildTeamBattleMap() {
-      walls.length=0; doors.length=0;
-      const W=world.w, H=world.h, t=42;
+      walls.length=0; doors.length=0; props.length=0; fixtures.length=0;
+      const W=world.w, H=world.h, t=42, mX=W/2, mY=H/2;
+      // 외벽
       addWall(0,0,W,t); addWall(0,H-t,W,t);
       addWall(0,0,t,H); addWall(W-t,0,t,H);
-      // BLUE base wall (x=480) with door
-      addWall(480,t,t,H/2-120);
-      addDoor(480,H/2-120,t,240,"v");
-      addWall(480,H/2+120,t,H-(H/2+120)-t);
-      // RED base wall (symmetric)
-      addWall(W-480-t,t,t,H/2-120);
-      addDoor(W-480-t,H/2-120,t,240,"v");
-      addWall(W-480-t,H/2+120,t,H-(H/2+120)-t);
-      // Top corridor walls with center gap (~400px)
-      const midX=W/2;
-      addWall(480+t,t,(midX-200)-(480+t),t);
-      addWall(midX+200,t,(W-480-t)-(midX+200),t);
-      // Bottom corridor walls
-      addWall(480+t,H-2*t,(midX-200)-(480+t),t);
-      addWall(midX+200,H-2*t,(W-480-t)-(midX+200),t);
-      // Center cross
-      const mY=H/2;
-      addWall(midX-100,mY-21,200,42);
-      addWall(midX-21,mY-100,42,200);
-      // NW cover (L)
-      addWall(midX-370,mY-220,120,42);
-      addWall(midX-370,mY-220,42,120);
-      // NE cover (L)
-      addWall(midX+250,mY-220,120,42);
-      addWall(midX+328,mY-220,42,120);
-      // SW cover (L)
-      addWall(midX-370,mY+100,42,120);
-      addWall(midX-370,mY+178,120,42);
-      // SE cover (L)
-      addWall(midX+250,mY+178,120,42);
-      addWall(midX+328,mY+100,42,120);
-      // Flanking pillars
-      addWall(710,mY-90,42,180);
-      addWall(W-710-42,mY-90,42,180);
+
+      // ── BLUE 기지벽 (x=520) — 도어 3개 (상단/중앙/하단 통로) ──
+      const bx=520;
+      addWall(bx,t,t,H*0.22);
+      addDoor(bx,t+H*0.22,t,H*0.13,"v");       // 상단 통로
+      addWall(bx,t+H*0.35,t,H*0.15);
+      addDoor(bx,t+H*0.50,t,H*0.13,"v");       // 중앙 통로
+      addWall(bx,t+H*0.63,t,H*0.15);
+      addDoor(bx,t+H*0.78,t,H*0.13,"v");       // 하단 통로
+      addWall(bx,t+H*0.91,t,H-t-(t+H*0.91));
+
+      // ── RED 기지벽 (대칭) ──
+      const rx=W-bx-t;
+      addWall(rx,t,t,H*0.22);
+      addDoor(rx,t+H*0.22,t,H*0.13,"v");
+      addWall(rx,t+H*0.35,t,H*0.15);
+      addDoor(rx,t+H*0.50,t,H*0.13,"v");
+      addWall(rx,t+H*0.63,t,H*0.15);
+      addDoor(rx,t+H*0.78,t,H*0.13,"v");
+      addWall(rx,t+H*0.91,t,H-t-(t+H*0.91));
+
+      // ── 중앙 십자 엄폐물 ──
+      addWall(mX-110,mY-21,220,42);
+      addWall(mX-21,mY-110,42,220);
+
+      // ── 중앙 좌우 긴 복도 엄폐벽 (두 줄) ──
+      // 상단 레인
+      addWall(mX-320,mY-280,160,t);   addWall(mX+160,mY-280,160,t);
+      addWall(mX-320,mY-280,t,80);    addWall(mX+320,mY-280,t,80);
+      // 하단 레인
+      addWall(mX-320,mY+238,160,t);   addWall(mX+160,mY+238,160,t);
+      addWall(mX-320,mY+160,t,80);    addWall(mX+320,mY+160,t,80);
+
+      // ── 측면 기지 앞 엄폐물 (좌우 대칭) ──
+      const off=200;
+      // 좌측 (BLUE 쪽)
+      addWall(bx+off,mY-210,t,140);
+      addWall(bx+off,mY+70, t,140);
+      addWall(bx+off,mY-70, 90,t);
+      // 우측 (RED 쪽)
+      addWall(rx-off-t,mY-210,t,140);
+      addWall(rx-off-t,mY+70, t,140);
+      addWall(rx-off-t-90,mY-70,90,t);
+
+      // ── 통로 중간 기둥 (4개 대칭) ──
+      addWall(mX-580,mY-90,t,180);  addWall(mX+580-t,mY-90,t,180);
+      addWall(mX-400,mY-90,t,80);   addWall(mX+400-t,mY-90,t,80);
+      addWall(mX-400,mY+10, t,80);  addWall(mX+400-t,mY+10, t,80);
+
       usingCustomMap=true;
     }
 
     function setupAiPlayers() {
       aiPlayers.length=0;
       const bx=380, rx=world.w-380;
-      [
-        {team:0,charIdx:0,x:bx,  y:720},{team:0,charIdx:3,x:bx,  y:880},{team:0,charIdx:2,x:bx-70,y:800},
-        {team:1,charIdx:0,x:rx,  y:720},{team:1,charIdx:3,x:rx,  y:880},{team:1,charIdx:2,x:rx+70,y:800},
-      ].forEach(d=>{
-        const ch=CHAR_DEFS[d.charIdx];
-        aiPlayers.push({ team:d.team, charIdx:d.charIdx, x:d.x, y:d.y,
-          hp:ch.tbHp, maxHp:ch.tbHp,
-          angle:d.team===0?0:Math.PI, speed:180*ch.speedMult,
-          shootCd:Math.random()*1.2, alive:true, col:ch.col, build:ch.build, name:ch.name });
+      // playerChar.id가 이미 플레이어 팀에 있으므로 AI는 나머지 3캐릭터 사용
+      const allIdx=[0,1,2,3];
+      const allyIdx=allIdx.filter(i=>i!==playerChar.id);   // 내 팀 AI: 플레이어 제외 3종
+      const enemyIdx=[0,1,2,3].filter(i=>i!==playerChar.id); // 적팀 AI: 동일 구성
+      const offsets=[{dx:0,dy:-120},{dx:-80,dy:0},{dx:0,dy:120}];
+      allyIdx.forEach((ci,k)=>{
+        const ch=CHAR_DEFS[ci], o=offsets[k];
+        aiPlayers.push({ team:playerTeam, charIdx:ci, x:bx+o.dx, y:world.h/2+o.dy,
+          hp:ch.tbHp, maxHp:ch.tbHp, angle:0, speed:170*ch.speedMult,
+          shootCd:Math.random()*1.2, walkTime:0, isMoving:false,
+          alive:true, col:ch.col, build:ch.build, name:ch.name });
+      });
+      const eteam=1-playerTeam;
+      enemyIdx.forEach((ci,k)=>{
+        const ch=CHAR_DEFS[ci], o=offsets[k];
+        aiPlayers.push({ team:eteam, charIdx:ci, x:rx-o.dx, y:world.h/2+o.dy,
+          hp:ch.tbHp, maxHp:ch.tbHp, angle:Math.PI, speed:170*ch.speedMult,
+          shootCd:Math.random()*1.2, walkTime:0, isMoving:false,
+          alive:true, col:ch.col, build:ch.build, name:ch.name });
       });
     }
 
@@ -8722,10 +8750,14 @@
         if (!target) continue;
         const tdx=target.x-ai.x, tdy=target.y-ai.y, td=Math.hypot(tdx,tdy)||1;
         ai.angle=Math.atan2(tdy,tdx);
-        if (td>(target.isFacility?160:200)) {
+        const stopDist=target.isFacility?160:200;
+        if (td>stopDist) {
           ai.x+=tdx/td*ai.speed*dt; ai.y+=tdy/td*ai.speed*dt;
           ai.x=Math.max(60,Math.min(world.w-60,ai.x));
           ai.y=Math.max(60,Math.min(world.h-60,ai.y));
+          ai.walkTime=(ai.walkTime||0)+dt; ai.isMoving=true;
+        } else {
+          ai.isMoving=false;
         }
         ai.shootCd-=dt;
         if (ai.shootCd<=0&&td<650) {
@@ -8748,8 +8780,18 @@
 
     function checkTeamBattleWin() {
       if (teamBattleWon!==null) return;
+      // 기지 파괴 시 승패
       for (const fac of facilities) {
         if (fac.hp<=0) { teamBattleWon=(fac.team===playerTeam)?"lose":"win"; return; }
+      }
+      // 적팀 전원 사망 → 승리
+      const eTeam=1-playerTeam;
+      const enemyAiAlive=aiPlayers.some(ai=>ai.team===eTeam&&ai.alive);
+      if (!enemyAiAlive) { teamBattleWon="win"; return; }
+      // 내 팀 전원 사망(플레이어+AI) → 패배
+      if (player.hp<=0) {
+        const allyAiAlive=aiPlayers.some(ai=>ai.team===playerTeam&&ai.alive);
+        if (!allyAiAlive) { teamBattleWon="lose"; }
       }
     }
 
@@ -8768,33 +8810,37 @@
     }
 
     function drawAiPlayer(ai) {
+      const ch=CHAR_DEFS[ai.charIdx||0];
+      const isAlly=(ai.team===playerTeam);
+      const pc=ch.col;
       ctx.save();
-      ctx.translate(ai.x,ai.y); ctx.rotate(ai.angle);
-      const isAlly=(ai.team===playerTeam), sz=18;
-      const g=ctx.createRadialGradient(0,0,0,0,0,sz*1.8);
-      g.addColorStop(0,isAlly?"rgba(60,120,255,0.22)":"rgba(255,60,60,0.22)");
-      g.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,sz*1.8,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle=isAlly?"#1a3a8a":"#8a1a1a";
-      ctx.beginPath(); ctx.arc(0,0,sz,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=isAlly?"#6699ff":"#ff6666"; ctx.lineWidth=2.5; ctx.stroke();
-      ctx.fillStyle=isAlly?"#2255cc":"#cc2222";
-      ctx.beginPath(); ctx.arc(-sz*0.38,-sz*0.48,sz*0.32,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(-sz*0.38, sz*0.48,sz*0.32,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle=isAlly?"#88ddff":"#ffcc44";
-      ctx.fillRect(sz*0.1,-sz*0.26,sz*0.62,sz*0.52);
-      ctx.fillStyle="#555"; ctx.fillRect(sz*0.7,-3,sz*0.9,6);
+      ctx.translate(ai.x,ai.y);
+      ctx.rotate(ai.angle);
+      // 팀 글로우
+      const grd=ctx.createRadialGradient(0,0,0,0,0,30);
+      grd.addColorStop(0,isAlly?"rgba(60,140,255,0.22)":"rgba(255,60,60,0.22)");
+      grd.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(0,0,30,0,Math.PI*2); ctx.fill();
+      // 실제 캐릭터 외형 (drawMarineSoldier 재사용)
+      const charColors={ dark:pc.body, mid:pc.light, light:pc.light, red:pc.visor };
+      drawMarineSoldier(24, ai.walkTime||0, ai.isMoving||false, charColors, false, false, 0);
+      // 팀 색상 링 (아군=파랑, 적=빨강)
+      ctx.strokeStyle=isAlly?"rgba(80,160,255,0.8)":"rgba(255,60,60,0.8)";
+      ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(0,0,27,0,Math.PI*2); ctx.stroke();
       ctx.restore();
-      const hpFrac=Math.max(0,ai.hp/ai.maxHp), bw=40;
+      // HP바 + 이름
+      const hpFrac=Math.max(0,ai.hp/ai.maxHp), bw=44;
+      const ly=ai.y-34;
       ctx.save();
-      ctx.fillStyle="rgba(0,0,0,0.7)"; ctx.fillRect(ai.x-bw/2,ai.y-sz-14,bw,5);
+      ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(ai.x-bw/2,ly,bw,5);
       ctx.fillStyle=isAlly?"#44ff88":"#ff4444";
-      ctx.fillRect(ai.x-bw/2,ai.y-sz-14,bw*hpFrac,5);
-      ctx.strokeStyle=isAlly?"#88ffbb":"#ff8888"; ctx.lineWidth=0.8;
-      ctx.strokeRect(ai.x-bw/2,ai.y-sz-14,bw,5);
-      ctx.fillStyle="rgba(255,255,255,0.9)"; ctx.font="bold 8px monospace";
+      ctx.fillRect(ai.x-bw/2,ly,bw*hpFrac,5);
+      ctx.strokeStyle=isAlly?"#88ffcc":"#ff9999"; ctx.lineWidth=0.8;
+      ctx.strokeRect(ai.x-bw/2,ly,bw,5);
+      ctx.fillStyle=isAlly?"#aaddff":"#ffbbbb"; ctx.font="bold 8px monospace";
       ctx.textAlign="center";
-      ctx.fillText(ai.name+(isAlly?" ●":" ◆"),ai.x,ai.y-sz-17);
+      ctx.fillText(ch.name+(isAlly?" ●":" ◆"),ai.x,ly-3);
       ctx.restore();
     }
 
