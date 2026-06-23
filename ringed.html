@@ -1602,7 +1602,7 @@
       } else if (st === "homing_missiles") {
         // BULL: 유도 미사일 6발 — 바람개비 방사 (접선 방향 발사)
         skillEnergy = 0;
-        const spd = 45; // 고정 속도 (px/s) — 느린 바람개비 효과
+        const spd = 4.5; // 고정 속도 (px/s) — 매우 느린 바람개비 효과
         for (let i = 0; i < 6; i++) {
           const radialAngle = (i / 6) * Math.PI * 2; // 방사 방향 (캐릭터에서 퍼지는 방향)
           const launchAngle = radialAngle + Math.PI / 2; // 접선 방향 (90도 회전 → 바람개비)
@@ -2325,7 +2325,7 @@
         hm.life -= dt;
         if (hm.life <= 0) { homingMissiles.splice(i, 1); continue; }
 
-        const FIXED_SPD = 45; // 고정 비행 속도 (px/s) — 바람개비 효과
+        const FIXED_SPD = 4.5; // 고정 비행 속도 (px/s) — 매우 느린 바람개비 효과
 
         // 1. 자유비행 타이머 감소 (4초 동안 바람개비 전개, 이후 유도 시작)
         if (hm.freeFlightTime === undefined) hm.freeFlightTime = 0;
