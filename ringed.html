@@ -161,6 +161,7 @@
     const mortarShells = [];
     const homingMissiles = []; // BULL 스킬: 유도 미사일 6발
     const drones = [];         // VIPER 스킬: 드론 레이저
+    const groundBurns = [];    // VIPER 드론: 바닥 그을음 효과
     let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
     const SNIPER_MAX_AMMO = 5, SNIPER_RELOAD_TIME = 1.5;
     const PISTOL_MAX_AMMO = 15, PISTOL_RELOAD_TIME = 1.5;
@@ -901,6 +902,7 @@
       mortarShells.length = 0;
       homingMissiles.length = 0;
       drones.length = 0;
+      groundBurns.length = 0;
       missileCharging = false; missileHoldTimer = 0; missileActive = null;
       sniperAmmo = SNIPER_MAX_AMMO; sniperReloadTimer = 0; sniperAimReady = false;
       pistolAmmo = PISTOL_MAX_AMMO; pistolReloadTimer = 0;
@@ -1630,20 +1632,26 @@
         shake = Math.max(shake, 4);
         speechBubbles.push({ text: "LOCK ON!", life: 1.2, maxLife: 1.2, screen: true });
       } else if (st === "drone_laser") {
-        // VIPER: 가까운 적 순으로 드론 배치 → 레이저 발사
+        // VIPER: 캐릭터 등뒤 → 가까운 적 4명 머리 위로 순차 비행 → 레이저
         skillEnergy = 0;
         const sorted = enemies.slice().sort((a, b) =>
           Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y)
         );
         const targets = sorted.slice(0, Math.min(4, sorted.length));
+        const bx = player.x - Math.cos(player.angle) * 44;
+        const by = player.y - Math.sin(player.angle) * 44;
         targets.forEach((e, i) => {
           drones.push({
             target: e,
-            x: e.x, y: e.y - 64,
-            fireDelay: 0.35 + i * 0.18,
-            fired: false,
+            x: bx, y: by,
+            startX: bx, startY: by,
+            phase: "waiting",   // waiting → flying → hovering → firing → done
+            waitTimer: i * 0.2,
+            flyProgress: 0,
+            flyDuration: 0.5,
+            hoverTimer: 0.5,
             laserTimer: 0,
-            life: 2.2 + i * 0.18,
+            doneTimer: 0.35,
           });
         });
         shake = Math.max(shake, 5);
@@ -2425,26 +2433,46 @@
       // 드론 업데이트 (VIPER 스킬)
       for (let i = drones.length - 1; i >= 0; i--) {
         const dr = drones[i];
-        dr.life -= dt;
-        if (dr.life <= 0) { drones.splice(i, 1); continue; }
-        // 드론이 타겟 적 머리 위를 따라다님
-        if (dr.target && enemies.includes(dr.target)) {
-          dr.x += (dr.target.x - dr.x) * Math.min(1, dt * 8);
-          dr.y += (dr.target.y - 64 - dr.y) * Math.min(1, dt * 8);
-        }
-        dr.fireDelay -= dt;
-        if (dr.fireDelay <= 0 && !dr.fired) {
-          dr.fired = true;
-          dr.laserTimer = 0.35;
-          if (dr.target && enemies.includes(dr.target)) {
-            dr.target.hp -= 200 * (rageActive ? 2 : 1);
-            skillEnergy = Math.min(1, skillEnergy + 0.15);
-            burst(dr.x, dr.target.y, "#00ffcc", 8);
-            burst(dr.x, dr.target.y, "#ffffff", 4);
-            shake = Math.max(shake, 3);
+        if (dr.phase === "waiting") {
+          dr.waitTimer -= dt;
+          if (dr.waitTimer <= 0) dr.phase = "flying";
+        } else if (dr.phase === "flying") {
+          dr.flyProgress = Math.min(1, dr.flyProgress + dt / dr.flyDuration);
+          const ease = 1 - Math.pow(1 - dr.flyProgress, 3);
+          const tx = dr.target.x, ty = dr.target.y - 64;
+          dr.x = dr.startX + (tx - dr.startX) * ease;
+          dr.y = dr.startY + (ty - dr.startY) * ease;
+          if (dr.flyProgress >= 1) dr.phase = "hovering";
+        } else if (dr.phase === "hovering") {
+          dr.x += (dr.target.x - dr.x) * Math.min(1, dt * 6);
+          dr.y += (dr.target.y - 64 - dr.y) * Math.min(1, dt * 6);
+          dr.hoverTimer -= dt;
+          if (dr.hoverTimer <= 0) {
+            dr.phase = "firing";
+            dr.laserTimer = 0.4;
+            if (enemies.includes(dr.target)) {
+              dr.target.hp -= 200 * (rageActive ? 2 : 1);
+              skillEnergy = Math.min(1, skillEnergy + 0.15);
+              groundBurns.push({ x: dr.target.x, y: dr.target.y, life: 2.2, maxLife: 2.2 });
+              burst(dr.x, dr.target.y, "#00ffcc", 8);
+              burst(dr.x, dr.target.y, "#ffffff", 5);
+              shake = Math.max(shake, 3);
+            }
           }
+        } else if (dr.phase === "firing") {
+          dr.x += (dr.target.x - dr.x) * Math.min(1, dt * 6);
+          dr.y += (dr.target.y - 64 - dr.y) * Math.min(1, dt * 6);
+          dr.laserTimer -= dt;
+          if (dr.laserTimer <= 0) dr.phase = "done";
+        } else if (dr.phase === "done") {
+          dr.doneTimer -= dt;
+          if (dr.doneTimer <= 0) { drones.splice(i, 1); continue; }
         }
-        if (dr.laserTimer > 0) dr.laserTimer -= dt;
+      }
+      // 바닥 그을음 업데이트
+      for (let i = groundBurns.length - 1; i >= 0; i--) {
+        groundBurns[i].life -= dt;
+        if (groundBurns[i].life <= 0) groundBurns.splice(i, 1);
       }
       for (let i = bombs.length - 1; i >= 0; i--) {
         const b = bombs[i];
@@ -4555,6 +4583,7 @@
       drawTracers();
       drawEnemyTracers();
       drawFlameBursts();
+      for (const gb of groundBurns) drawGroundBurn(gb);
       for (const e of enemies) drawEnemy(e);
       for (const dr of drones) drawDrone(dr);
       drawSpeechBubbles();
@@ -5443,79 +5472,125 @@
 
     function drawDrone(dr) {
       const now = performance.now() * 0.001;
-      const t = dr.life;
-      const alpha = Math.min(1, t * 3);
-      ctx.save();
-      ctx.globalAlpha = alpha;
+      if (dr.phase === "waiting") return;
 
-      // 레이저 빔 (발사 후)
-      if (dr.fired && dr.laserTimer > 0 && dr.target) {
-        const la = dr.laserTimer / 0.35;
-        ctx.globalAlpha = alpha * la;
+      const fadeOut = dr.phase === "done" ? Math.max(0, dr.doneTimer / 0.35) : 1;
+      const fadeIn  = dr.phase === "flying" ? dr.flyProgress : 1;
+      const alpha   = fadeIn * fadeOut;
+      ctx.save();
+
+      // ── 레이저 빔 (firing 단계) ─────────────────────
+      if (dr.phase === "firing" && dr.laserTimer > 0) {
+        const la = dr.laserTimer / 0.4;
         const lx = dr.x;
-        const ty = dr.target.y;
-        // 외부 빔 (넓고 반투명)
-        const lg = ctx.createLinearGradient(lx - 8, dr.y, lx + 8, dr.y);
+        const ey = dr.target.y;
+        ctx.globalAlpha = la * 0.85;
+        // 외부 글로우 빔
+        const lg = ctx.createLinearGradient(lx - 10, 0, lx + 10, 0);
         lg.addColorStop(0, "rgba(0,255,180,0)");
-        lg.addColorStop(0.5, `rgba(0,255,220,${0.7 * la})`);
+        lg.addColorStop(0.5, `rgba(0,255,220,${0.8 * la})`);
         lg.addColorStop(1, "rgba(0,255,180,0)");
         ctx.fillStyle = lg;
-        ctx.fillRect(lx - 8, dr.y, 16, ty - dr.y);
-        // 핵심 빔 (얇고 밝음)
-        ctx.fillStyle = `rgba(180,255,255,${la})`;
-        ctx.fillRect(lx - 2, dr.y, 4, ty - dr.y);
-        // 충격 플래시
-        ctx.globalAlpha = alpha * la * 0.8;
-        const imp = ctx.createRadialGradient(lx, ty, 0, lx, ty, 28);
-        imp.addColorStop(0, "rgba(255,255,255,0.9)");
-        imp.addColorStop(0.4, "rgba(0,255,200,0.6)");
+        ctx.fillRect(lx - 10, dr.y, 20, ey - dr.y);
+        // 핵심 빔
+        ctx.globalAlpha = la;
+        ctx.fillStyle = `rgba(210,255,255,${la})`;
+        ctx.fillRect(lx - 2, dr.y, 4, ey - dr.y);
+        // 충격 플래시 (착탄점)
+        ctx.globalAlpha = la * 0.9;
+        const imp = ctx.createRadialGradient(lx, ey, 0, lx, ey, 32);
+        imp.addColorStop(0, "rgba(255,255,255,1)");
+        imp.addColorStop(0.3, "rgba(0,255,200,0.7)");
         imp.addColorStop(1, "rgba(0,255,200,0)");
         ctx.fillStyle = imp;
-        ctx.beginPath(); ctx.arc(lx, ty, 28, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(lx, ey, 32, 0, Math.PI * 2); ctx.fill();
       }
 
-      // 드론 본체
+      // ── 드론 본체 ────────────────────────────────────
+      ctx.globalAlpha = alpha;
+      ctx.save();
       ctx.translate(dr.x, dr.y);
-      const hover = Math.sin(now * 4 + dr.fireDelay) * 3;
-      ctx.translate(0, hover);
 
-      // 충전 글로우
-      if (!dr.fired) {
-        const charge = Math.max(0, 1 - dr.fireDelay / 0.35);
-        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 20 + charge * 10);
-        glow.addColorStop(0, `rgba(0,255,180,${0.6 * charge})`);
+      // 호버링 흔들흔들 (hovering 단계)
+      const wobble = dr.phase === "hovering"
+        ? Math.sin(now * 9) * 2.5
+        : (dr.phase === "flying" ? 0 : Math.sin(now * 5) * 1.5);
+      ctx.translate(Math.sin(now * 7) * wobble * 0.4, wobble);
+
+      // 충전 글로우 (hovering 단계 → 점점 밝아짐)
+      if (dr.phase === "hovering") {
+        const chargeRatio = 1 - dr.hoverTimer / 0.5;
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 18 + chargeRatio * 16);
+        glow.addColorStop(0, `rgba(0,255,180,${0.7 * chargeRatio})`);
         glow.addColorStop(1, "rgba(0,255,180,0)");
         ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
       }
 
-      // 드론 몸체 (납작한 육각형 실루엣)
-      ctx.fillStyle = "#1a3a2a";
-      ctx.strokeStyle = dr.fired ? "#00ffaa" : "#00cc88";
-      ctx.lineWidth = 1.5;
+      // 몸체 (납작 육각형)
+      const isFiring = (dr.phase === "firing");
+      ctx.fillStyle = "#0e2218";
+      ctx.strokeStyle = isFiring ? "#00ffcc" : "#00aa66";
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
       for (let k = 0; k < 6; k++) {
-        const a = (k / 6) * Math.PI * 2 - Math.PI / 6;
-        k === 0 ? ctx.moveTo(Math.cos(a) * 12, Math.sin(a) * 7) : ctx.lineTo(Math.cos(a) * 12, Math.sin(a) * 7);
+        const a = (k / 6) * Math.PI * 2;
+        k === 0 ? ctx.moveTo(Math.cos(a) * 13, Math.sin(a) * 8) : ctx.lineTo(Math.cos(a) * 13, Math.sin(a) * 8);
       }
       ctx.closePath(); ctx.fill(); ctx.stroke();
 
       // 중앙 렌즈
       const lens = ctx.createRadialGradient(0, 0, 0, 0, 0, 5);
       lens.addColorStop(0, "#ffffff");
-      lens.addColorStop(0.4, dr.fired ? "#00ffcc" : "#00cc88");
-      lens.addColorStop(1, "#003322");
+      lens.addColorStop(0.4, isFiring ? "#00ffee" : "#00cc88");
+      lens.addColorStop(1, "#002211");
       ctx.fillStyle = lens;
       ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
 
-      // 좌우 프로펠러
-      for (const sx of [-14, 14]) {
-        ctx.strokeStyle = "rgba(0,255,160,0.7)";
-        ctx.lineWidth = 1;
+      // 좌우 프로펠러 (회전)
+      for (const sx of [-16, 16]) {
+        ctx.strokeStyle = "rgba(0,255,150,0.65)";
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.ellipse(sx, 0, 7, 2, now * (sx > 0 ? 8 : -8), 0, Math.PI * 2);
+        ctx.ellipse(sx, 0, 8, 2.5, now * (sx > 0 ? 10 : -10), 0, Math.PI * 2);
         ctx.stroke();
+      }
+
+      ctx.restore();
+      ctx.restore();
+    }
+
+    function drawGroundBurn(gb) {
+      const now = performance.now() * 0.001;
+      const t = gb.life / gb.maxLife; // 1 → 0
+      ctx.save();
+
+      // 그을음 원 (검게, 서서히 사라짐)
+      const r = 20 + (1 - t) * 6;
+      ctx.globalAlpha = t * 0.82;
+      const scorch = ctx.createRadialGradient(gb.x, gb.y, 0, gb.x, gb.y, r);
+      scorch.addColorStop(0, "rgba(0,0,0,0.95)");
+      scorch.addColorStop(0.6, "rgba(10,5,0,0.7)");
+      scorch.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = scorch;
+      ctx.beginPath(); ctx.arc(gb.x, gb.y, r, 0, Math.PI * 2); ctx.fill();
+
+      // 흰 아지랭이 (중반부터 피어오름)
+      if (t < 0.75) {
+        const shimmerAmt = (0.75 - t) / 0.75;
+        for (let k = 0; k < 4; k++) {
+          const wx = gb.x + Math.sin(now * 2.5 + k * 1.7) * r * 0.55;
+          const riseY = shimmerAmt * 28 + k * 7;
+          const wy = gb.y - riseY;
+          const wa = shimmerAmt * (1 - k * 0.22) * (0.5 + 0.4 * Math.sin(now * 4 + k * 2.3));
+          if (wa <= 0) continue;
+          ctx.globalAlpha = wa * 0.55;
+          const wisp = ctx.createRadialGradient(wx, wy, 0, wx, wy, 5 + k * 1.5);
+          wisp.addColorStop(0, "rgba(255,255,255,0.9)");
+          wisp.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = wisp;
+          ctx.beginPath(); ctx.arc(wx, wy, 5 + k * 1.5, 0, Math.PI * 2); ctx.fill();
+        }
       }
 
       ctx.restore();
