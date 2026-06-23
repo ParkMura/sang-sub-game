@@ -141,7 +141,7 @@
         speedMult:1.0,  hpMult:1.0,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
         col:{ body:"#1a2e7a", light:"#2a40a0", visor:"#e87030", shoulder:"#c89010" } },
       { id:1, name:"BULL",  sub:"중장갑 전사", gender:"male",   build:"heavy",
-        speedMult:0.82, hpMult:1.35,  primaryW:1, secondaryW:4, bombType:"c4",      skillType:"mortar",
+        speedMult:0.82, hpMult:1.35,  primaryW:1, secondaryW:4, bombType:"c4",      skillType:"homing_missiles",
         col:{ body:"#281808", light:"#4a2a10", visor:"#ff4400", shoulder:"#7a5008" } },
       { id:2, name:"VIPER", sub:"정예 저격수", gender:"male",   build:"slim",
         speedMult:1.22, hpMult:0.75,  primaryW:5, secondaryW:6, bombType:"grenade", skillType:"missile",
@@ -158,6 +158,7 @@
     const c4List = [];
     let c4AimShakeCount = 0, c4AimShakePrev = 0;
     const mortarShells = [];
+    const homingMissiles = []; // BULL 스킬: 유도 미사일 6발
     let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
     const SNIPER_MAX_AMMO = 5, SNIPER_RELOAD_TIME = 1.5;
     const PISTOL_MAX_AMMO = 15, PISTOL_RELOAD_TIME = 1.5;
@@ -894,6 +895,7 @@
       healAuraTimer = 0;
       c4List.length = 0; c4AimShakeCount = 0; c4AimShakePrev = 0;
       mortarShells.length = 0;
+      homingMissiles.length = 0;
       missileCharging = false; missileHoldTimer = 0; missileActive = null;
       sniperAmmo = SNIPER_MAX_AMMO; sniperReloadTimer = 0; sniperAimReady = false;
       pistolAmmo = PISTOL_MAX_AMMO; pistolReloadTimer = 0;
@@ -1545,19 +1547,26 @@
         }
         skillEnergy = 0;
         speechBubbles.push({ x: player.x, y: player.y - 40, text: "STUN AURA!", life: 1.5, maxLife: 1.5, screen: true });
-      } else if (st === "mortar") {
-        // BULL: 박격포 10발
+      } else if (st === "homing_missiles") {
+        // BULL: 유도 미사일 6발
         skillEnergy = 0;
-        const ax = isMobile ? (player.x + mobileControls.aimDirX * 200) : aimTarget.x;
-        const ay = isMobile ? (player.y + mobileControls.aimDirY * 200) : aimTarget.y;
-        for (let i = 0; i < 10; i++) {
-          mortarShells.push({
-            x: ax + (Math.random() - 0.5) * 90,
-            y: ay + (Math.random() - 0.5) * 90,
-            delay: i * 0.18
+        for (let i = 0; i < 6; i++) {
+          const spreadAngle = (i / 6) * Math.PI * 2 + Math.random() * 0.4;
+          const spd = 200 + Math.random() * 60;
+          homingMissiles.push({
+            x: player.x, y: player.y,
+            vx: Math.cos(spreadAngle) * spd,
+            vy: Math.sin(spreadAngle) * spd,
+            sinePhase: Math.random() * Math.PI * 2, // S자 위상 개별화
+            sineFreq: 2.8 + Math.random() * 1.2,
+            sineAmp: 90 + Math.random() * 40,
+            life: 4.5,
+            delay: i * 0.12,  // 발사 간격 0.12초
+            target: null, // 추적 대상 (나중에 배정)
           });
         }
-        speechBubbles.push({ x: player.x, y: player.y - 40, text: "MORTAR FIRE!", life: 1.5, maxLife: 1.5, screen: true });
+        shake = Math.max(shake, 4);
+        speechBubbles.push({ text: "LOCK ON!", life: 1.2, maxLife: 1.2, screen: true });
       } else if (st === "missile") {
         // VIPER: 대형 미사일 충전 시작
         missileCharging = true;
@@ -2231,14 +2240,63 @@
           taserBullets.splice(i, 1);
         }
       }
-      // 박격포 탄 업데이트 (BULL 스킬)
-      for (let i = mortarShells.length - 1; i >= 0; i--) {
-        const ms = mortarShells[i];
-        ms.delay -= dt;
-        if (ms.delay <= 0) {
-          explodeMortar(ms.x, ms.y);
-          mortarShells.splice(i, 1);
+      // 유도 미사일 업데이트 (BULL 스킬)
+      for (let i = homingMissiles.length - 1; i >= 0; i--) {
+        const hm = homingMissiles[i];
+        hm.delay -= dt;
+        if (hm.delay > 0) continue; // 아직 발사 전
+        hm.life -= dt;
+        // 가장 가까운 적 추적
+        let bestEnemy = null, bestDist = Infinity;
+        for (const e of enemies) {
+          const d = Math.hypot(e.x - hm.x, e.y - hm.y);
+          if (d < bestDist) { bestDist = d; bestEnemy = e; }
         }
+        if (bestEnemy) {
+          // 호밍: 적 방향으로 속도 보간 (점진적 선회)
+          const tdx = bestEnemy.x - hm.x, tdy = bestEnemy.y - hm.y;
+          const td = Math.hypot(tdx, tdy) || 1;
+          const spd = Math.hypot(hm.vx, hm.vy) || 260;
+          const targetVx = (tdx / td) * spd, targetVy = (tdy / td) * spd;
+          const turn = Math.min(1, dt * 2.2); // 선회 강도
+          hm.vx += (targetVx - hm.vx) * turn;
+          hm.vy += (targetVy - hm.vy) * turn;
+          // S자 진동: 진행방향 수직 벡터에 사인파 더하기
+          const len = Math.hypot(hm.vx, hm.vy) || 1;
+          const nx = -hm.vy / len, ny = hm.vx / len; // 수직 단위벡터
+          hm.sinePhase += dt * hm.sineFreq * Math.PI * 2;
+          const sineForce = Math.sin(hm.sinePhase) * hm.sineAmp * dt;
+          hm.vx += nx * sineForce;
+          hm.vy += ny * sineForce;
+          // 속도 크기 고정 (280~340 사이)
+          const newLen = Math.hypot(hm.vx, hm.vy) || 1;
+          const clampedSpd = Math.min(340, Math.max(200, newLen));
+          hm.vx = (hm.vx / newLen) * clampedSpd;
+          hm.vy = (hm.vy / newLen) * clampedSpd;
+        }
+        hm.x += hm.vx * dt;
+        hm.y += hm.vy * dt;
+        // 충돌 판정: 적에게 닿으면 폭발
+        let hit = false;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 5) {
+            e.hp -= 150 * (rageActive ? 2 : 1);
+            skillEnergy = Math.min(1, skillEnergy + 0.1);
+            // 폭죽 폭발 효과
+            burst(hm.x, hm.y, "#ff8800", 10);
+            burst(hm.x, hm.y, "#ffdd00", 7);
+            burst(hm.x, hm.y, "#ff4400", 5);
+            shake = Math.max(shake, 3);
+            hit = true;
+            break;
+          }
+        }
+        if (!hit && pointInsideSolid(hm.x, hm.y)) {
+          burst(hm.x, hm.y, "#ff6600", 6);
+          hit = true;
+        }
+        if (hit || hm.life <= 0) { homingMissiles.splice(i, 1); }
       }
       // 미사일 업데이트 (VIPER 스킬)
       if (missileActive) {
@@ -4375,6 +4433,7 @@
       for (const b of bombs) drawBomb(b);
       for (const c4 of c4List) drawC4OnGround(c4);
       if (missileActive) drawMissileProjectile(missileActive);
+      for (const hm of homingMissiles) { if (hm.delay <= 0) drawHomingMissile(hm); }
       if (isMobile && splitPanelOffsetX === 0) drawMobileAimCursorWorld();
       if (isMobile && splitPanelOffsetX === 0 && currentWeapon === 3 && mobileControls.shoot) drawBombAimPreview();
       ctx.restore();
@@ -5180,6 +5239,40 @@
       // Engine glow
       ctx.fillStyle = `rgba(80,200,255,${0.7+Math.sin(now*30)*0.3})`;
       ctx.beginPath(); ctx.arc(-12, 0, 5, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    function drawHomingMissile(hm) {
+      // BULL 스킬 유도 미사일 - 캐릭터 20% 크기 (~5px)
+      const now = performance.now() * 0.001;
+      const angle = Math.atan2(hm.vy, hm.vx);
+      ctx.save();
+      ctx.translate(hm.x, hm.y);
+      ctx.rotate(angle);
+      // 연기 꼬리
+      ctx.globalAlpha = 0.35;
+      const trail = ctx.createLinearGradient(-18, 0, 0, 0);
+      trail.addColorStop(0, "rgba(255,120,0,0)");
+      trail.addColorStop(1, "rgba(255,200,60,0.6)");
+      ctx.fillStyle = trail;
+      ctx.fillRect(-18, -3, 18, 6);
+      ctx.globalAlpha = 1;
+      // 본체: 작은 방추형
+      ctx.fillStyle = "#e85010";
+      ctx.strokeStyle = "#ff8030";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(5, 0);    // 앞끝
+      ctx.lineTo(-4, -3);  // 뒤 위
+      ctx.lineTo(-4, 3);   // 뒤 아래
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // 탄두 강조
+      ctx.fillStyle = "#ffcc40";
+      ctx.beginPath(); ctx.arc(5, 0, 2, 0, Math.PI * 2); ctx.fill();
+      // 엔진 불꽃
+      ctx.fillStyle = `rgba(255,${140 + Math.sin(now * 40) * 100 | 0},20,${0.8 + Math.sin(now * 50) * 0.2})`;
+      ctx.beginPath(); ctx.arc(-4, 0, 2.5, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
