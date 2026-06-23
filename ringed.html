@@ -2324,7 +2324,7 @@
         hm.life -= dt;
         if (hm.life <= 0) { homingMissiles.splice(i, 1); continue; }
 
-        const HOMING_SPD = 160; // 유도 단계 속도 (px/s)
+        const HOMING_SPD = 80; // 유도 단계 속도 (px/s)
 
         if (hm.orbitTime === undefined) hm.orbitTime = 0;
         if (hm.orbitTime > 0) {
