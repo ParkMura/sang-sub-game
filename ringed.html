@@ -138,16 +138,16 @@
     // ─── 캐릭터 시스템 ────────────────────────────────────────
     const CHAR_DEFS = [
       { id:0, name:"HAWK",  sub:"특수부대원",  gender:"male",   build:"normal",
-        speedMult:1.0,  hpMult:1.0,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
+        speedMult:1.0,  hpMult:0.75,  primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
         col:{ body:"#1a2e7a", light:"#2a40a0", visor:"#e87030", shoulder:"#c89010" } },
       { id:1, name:"BULL",  sub:"중장갑 전사", gender:"male",   build:"heavy",
-        speedMult:0.82, hpMult:1.35,  primaryW:1, secondaryW:4, bombType:"c4",      skillType:"homing_missiles",
+        speedMult:0.82, hpMult:1.0,   primaryW:1, secondaryW:4, bombType:"c4",      skillType:"homing_missiles",
         col:{ body:"#281808", light:"#4a2a10", visor:"#ff4400", shoulder:"#7a5008" } },
       { id:2, name:"VIPER", sub:"정예 저격수", gender:"male",   build:"slim",
-        speedMult:1.22, hpMult:0.75,  primaryW:5, secondaryW:6, bombType:"grenade", skillType:"drone_laser",
+        speedMult:1.22, hpMult:0.5,   primaryW:5, secondaryW:6, bombType:"grenade", skillType:"drone_laser",
         col:{ body:"#102818", light:"#1e4020", visor:"#00ff88", shoulder:"#204820" } },
       { id:3, name:"MEDIC", sub:"전투 의무병", gender:"female", build:"slim",
-        speedMult:1.1,  hpMult:0.8,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"stun_aura",
+        speedMult:1.1,  hpMult:0.6,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"stun_aura",
         col:{ body:"#3a0a2a", light:"#600a40", visor:"#ff88ff", shoulder:"#c04080" } },
     ];
     let p1CharIdx = -1, p2CharIdx = -1;
@@ -162,6 +162,14 @@
     const homingMissiles = []; // BULL 스킬: 유도 미사일 6발
     const drones = [];         // VIPER 스킬: 드론 레이저
     const groundBurns = [];    // VIPER 드론: 바닥 그을음 효과
+    // ─── 팀 배틀 시스템 ─────────────────────────────────
+    let gameMode = "classic"; // "classic" | "teambattle"
+    let playerTeam = 0;       // 0=BLUE, 1=RED
+    const facilities = [];    // [{ x, y, w, h, hp, maxHp, team }] — 2개
+    const aiPlayers = [];     // AI 아군/적군 플레이어
+    const crates = [];        // 파괴 가능 상자
+    let teamBattleWon = null; // null | "win" | "lose"
+    let tbTimer = 0;          // 팀배틀 경과시간
     let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
     const SNIPER_MAX_AMMO = 5, SNIPER_RELOAD_TIME = 1.5;
     const PISTOL_MAX_AMMO = 15, PISTOL_RELOAD_TIME = 1.5;
@@ -333,8 +341,10 @@
         startIntroSequence();
         return;
       }
+      if (state === "play" && teamBattleWon !== null) { gameMode = "classic"; goMainMenu(); return; }
       if (state === "menu" && handleMenuClick(mouse.x, mouse.y)) return;
       if (state === "charselect") { handleCharSelectClick(mouse.x, mouse.y); return; }
+      if (state === "teamselect") { handleTeamSelectClick(mouse.x, mouse.y); return; }
       if (state === "lobby" && handleLobbyClick(mouse.x, mouse.y)) return;
       if (state === "maptool") {
         handleMapToolMouseDown(event);
@@ -346,7 +356,7 @@
       if (handleCameraButtonClick(mouse.x, mouse.y)) return;
       if (event.button === 2) mouse.right = true;
       else mouse.down = true;
-      if (state === "menu") { charSelectPhase = 0; p1CharIdx = -1; p2CharIdx = -1; state = "charselect"; return; }
+      if (state === "menu") { gameMode = "classic"; charSelectPhase = 0; p1CharIdx = -1; p2CharIdx = -1; state = "charselect"; return; }
       if (state === "dead") startGame();
     });
     window.addEventListener("mouseup", (event) => {
@@ -857,7 +867,7 @@
     function resetWorld() {
       player.x = 1100;
       player.y = 690;
-      player.hp = Math.round(100 * playerChar.hpMult);
+      player.hp = Math.round((gameMode === "teambattle" ? 1000 : 100) * playerChar.hpMult);
       player.stamina = 100;
       player.angle = 0;
       player.targetAngle = 0;
@@ -925,6 +935,11 @@
       lastIdleX = player.x;
       lastIdleY = player.y;
       if (isMobile) initMobileAimCursor();
+      facilities.length = 0;
+      aiPlayers.length = 0;
+      crates.length = 0;
+      teamBattleWon = null;
+      tbTimer = 0;
 
       buildFacilityMap();
       if (!usingCustomMap) {
@@ -937,6 +952,7 @@
     }
 
     function startGame() {
+      gameMode = "classic";
       ensureAudio();
       resetWorld();
       state = "play";
@@ -944,6 +960,7 @@
 
     function goMainMenu() {
       state = "menu";
+      gameMode = "classic";
       mouse.down = false;
       mouse.right = false;
       mobileControls.shoot = false;
@@ -1402,6 +1419,7 @@
         tracers.push({ x1: sx, y1: sy, x2: hit.x, y2: hit.y, life: 0.09, maxLife: 0.09 });
         if (hit.enemy) { hit.enemy.hp -= Math.round(44 * (playerChar.id === 3 ? 0.8 : 1) * (rageActive ? 2 : 1)); burst(hit.x, hit.y, "#9f2a24", 5); skillEnergy = Math.min(1, skillEnergy + 0.125); }
         else if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 5); hitWallCorner(hit.x, hit.y, 0.25, 28); }
+        else applyTBHit(hit, Math.round(44 * (rageActive ? 2 : 1)));
         flashes.push({ x: sx + dx * 18, y: sy + dy * 18, angle: player.angle, life: 0.075, maxLife: 0.075 });
         for (let i = 0; i < 4; i++) {
           particles.push({ x: sx, y: sy,
@@ -1435,6 +1453,7 @@
             skillEnergy = Math.min(1, skillEnergy + 0.125);
           }
           else if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 3); hitWallCorner(hit.x, hit.y, 1.0, 40); }
+          else { const hd2=Math.hypot(hit.x-sx,hit.y-sy); applyTBHit(hit, Math.max(30,Math.round(300-270*(hd2/SHOTGUN_RANGE)))); }
           splashHits.push({ x: hit.x, y: hit.y });
         }
         // 피해 반경 스플래시 (벽 사이에 없는 적만)
@@ -1491,6 +1510,7 @@
         tracers.push({ x1: sx, y1: sy, x2: hitP.x, y2: hitP.y, life: 0.09, maxLife: 0.09 });
         if (hitP.enemy) { hitP.enemy.hp -= 22 * (rageActive ? 2 : 1); burst(hitP.x, hitP.y, "#9f2a24", 4); skillEnergy = Math.min(1, skillEnergy + 0.1); }
         else if (hitP.solid) { burst(hitP.x, hitP.y, "#f4efe8", 3); }
+        else applyTBHit(hitP, 22 * (rageActive ? 2 : 1));
         flashes.push({ x: sx + dx * 16, y: sy + dy * 16, angle: player.angle, life: 0.06, maxLife: 0.06 });
         shake = Math.max(shake, 2); recoilAmt = 0.7;
       } else if (currentWeapon === 5) {
@@ -1509,6 +1529,7 @@
           burst(hitS.x, hitS.y, "#ff4000", 10);
           skillEnergy = Math.min(1, skillEnergy + 0.5);
         } else if (hitS.solid) { burst(hitS.x, hitS.y, "#f4efe8", 6); hitWallCorner(hitS.x, hitS.y, 0.5, 50); }
+        else applyTBHit(hitS, 150 * (rageActive ? 2 : 1));
         flashes.push({ x: sx + dx * 22, y: sy + dy * 22, angle: player.angle, life: 0.12, maxLife: 0.12 });
         shake = Math.max(shake, 6); recoilAmt = 1.5;
       } else if (currentWeapon === 6) {
@@ -1523,6 +1544,7 @@
         tracers.push({ x1: sx, y1: sy, x2: hitHP.x, y2: hitHP.y, life: 0.13, maxLife: 0.13 });
         if (hitHP.enemy) { hitHP.enemy.hp -= 120 * (rageActive ? 2 : 1); burst(hitHP.x, hitHP.y, "#ff6010", 8); skillEnergy = Math.min(1, skillEnergy + 0.3); }
         else if (hitHP.solid) { burst(hitHP.x, hitHP.y, "#f4efe8", 4); }
+        else applyTBHit(hitHP, 120 * (rageActive ? 2 : 1));
         flashes.push({ x: sx + dx * 18, y: sy + dy * 18, angle: player.angle, life: 0.09, maxLife: 0.09 });
         shake = Math.max(shake, 4); recoilAmt = 1.2;
       }
@@ -1550,9 +1572,12 @@
         burst(hit.x, hit.y, "#ff4000", 10);
         skillEnergy = Math.min(1, skillEnergy + 0.5);
         speechBubbles.push({ text: "HIT!", life: 1.3, maxLife: 1.3, screen: true });
-      } else {
-        if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 6); hitWallCorner(hit.x, hit.y, 0.5, 50); }
+      } else if (hit.solid) {
+        burst(hit.x, hit.y, "#f4efe8", 6); hitWallCorner(hit.x, hit.y, 0.5, 50);
         speechBubbles.push({ text: "MISS", life: 0.9, maxLife: 0.9, screen: true });
+      } else {
+        applyTBHit(hit, 150 * (rageActive ? 2 : 1));
+        speechBubbles.push({ text: hit.aiPlayer || hit.facility || hit.crate ? "HIT!" : "MISS", life: 0.9, maxLife: 0.9, screen: true });
       }
     }
 
@@ -2023,6 +2048,7 @@
         return;
       }
       if (state === "lobby") return;
+      if (state === "teamselect") return;
       if (state !== "play") {
         gameOverTimer += dt;
         return;
@@ -2093,7 +2119,7 @@
       updateRaidWarningEffects(dt);
       if (spawnTimer <= 0) {
         spawnTimer = Math.max(0.35, 1.25 - wave * 0.045);
-        if (enemies.length < 18 + wave * 2) spawnEnemy();
+        if (gameMode !== "teambattle" && enemies.length < 18 + wave * 2) spawnEnemy();
       }
       wave = 1 + Math.floor(kills / 12);
 
@@ -2322,7 +2348,31 @@
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
-        if (b.life <= 0 || b.x < 0 || b.x > world.w || b.y < 0 || b.y > world.h) bullets.splice(i, 1);
+        if (b.life <= 0 || b.x < 0 || b.x > world.w || b.y < 0 || b.y > world.h) { bullets.splice(i, 1); continue; }
+        // 팀배틀: 시설 피격 판정 (플레이어 총알만)
+        if (gameMode === "teambattle" && b.fromPlayer) {
+          let hitFac = false;
+          for (const fac of facilities) {
+            if (fac.team === playerTeam) continue;
+            if (b.x >= fac.x && b.x <= fac.x + fac.w && b.y >= fac.y && b.y <= fac.y + fac.h) {
+              fac.hp -= b.dmg || 20;
+              burst(b.x, b.y, fac.team === 1 ? "#ff8844" : "#4488ff", 5);
+              bullets.splice(i, 1); hitFac = true; break;
+            }
+          }
+          if (hitFac) continue;
+          // 크레이트 피격 판정
+          let hitCrate = false;
+          for (const cr of crates) {
+            if (cr.dead) continue;
+            if (b.x >= cr.x - cr.w/2 && b.x <= cr.x + cr.w/2 && b.y >= cr.y - cr.h/2 && b.y <= cr.y + cr.h/2) {
+              cr.hp -= b.dmg || 20;
+              if (cr.hp <= 0) { cr.dead = true; pickups.push({ x: cr.x, y: cr.y, r: 17, type: "heal", life: 8, pulse: 0 }); }
+              bullets.splice(i, 1); hitCrate = true; break;
+            }
+          }
+          if (hitCrate) continue;
+        }
       }
       for (let i = taserBullets.length - 1; i >= 0; i--) {
         const tb = taserBullets[i];
@@ -2594,6 +2644,14 @@
           kills++;
           skillEnergy = Math.min(1, skillEnergy + 0.125);
         }
+      }
+
+      // ─── AI 플레이어 업데이트 ────────────────────────────────
+      if (gameMode === "teambattle") {
+        tbTimer += dt;
+        updateAiPlayers(dt);
+        updateFacilities(dt);
+        checkTeamBattleWin();
       }
 
       for (let i = particles.length - 1; i >= 0; i--) {
@@ -2881,6 +2939,31 @@
         const t = rayCircle(x, y, dx, dy, enemy.x, enemy.y, enemy.r + 6);
         if (t !== null && t > 0 && t < best.t) {
           best = { t, x: x + dx * t, y: y + dy * t, enemy, solid: null };
+        }
+      }
+      // 팀배틀: AI플레이어 및 시설 레이캐스트
+      if (gameMode === "teambattle") {
+        for (const ai of aiPlayers) {
+          if (!ai.alive || ai.team === playerTeam) continue;
+          const t = rayCircle(x, y, dx, dy, ai.x, ai.y, 20);
+          if (t !== null && t > 0 && t < best.t) {
+            best = { t, x: x + dx * t, y: y + dy * t, enemy: null, solid: null, aiPlayer: ai };
+          }
+        }
+        for (const fac of facilities) {
+          if (fac.team === playerTeam) continue;
+          const t = rayRect(x, y, dx, dy, fac);
+          if (t !== null && t > 0 && t < best.t) {
+            best = { t, x: x + dx * t, y: y + dy * t, enemy: null, solid: null, facility: fac };
+          }
+        }
+        for (const cr of crates) {
+          if (cr.dead) continue;
+          const crRect = { x: cr.x - cr.w/2, y: cr.y - cr.h/2, w: cr.w, h: cr.h };
+          const t = rayRect(x, y, dx, dy, crRect);
+          if (t !== null && t > 0 && t < best.t) {
+            best = { t, x: x + dx * t, y: y + dy * t, enemy: null, solid: null, crate: cr };
+          }
         }
       }
       return best;
@@ -3365,6 +3448,7 @@
       else if (state === "menu") drawMenu();
       else if (state === "lobby") drawLobby();
       else if (state === "charselect") drawCharSelect();
+      else if (state === "teamselect") drawTeamSelect();
       else if (state === "maptool") drawMapTool();
       else {
         const _p2split = (mp.role === "host" && player2) ? player2 : (mp.role === "client" && remotePlayer ? remotePlayer : null);
@@ -4280,6 +4364,7 @@
       drawMenuCastShowcase();
       drawMenuButton(menuMapToolButton(), "MAP TOOL", false);
       drawMenuButton(menuCoopButton(), "2P CO-OP", false);
+      drawMenuButton(menuTeamBattleButton(), "TEAM BATTLE", false);
     }
 
     function drawGoldLine(cx, y, halfW) {
@@ -4511,7 +4596,7 @@
       const isP2 = charSelectPhase === 1;
       // Back button
       if (x >= 14 && x <= 94 && y >= 12 && y <= 38) {
-        state = "menu"; return;
+        state = "menu"; gameMode = "classic"; return;
       }
       for (let i = 0; i < 4; i++) {
         const cx2 = startX + i * (cardW + 12) + cardW / 2;
@@ -4530,6 +4615,9 @@
               playerChar = CHAR_DEFS[p1CharIdx];
               if (mp.role === "host" && player2) {
                 charSelectPhase = 1; p2CharIdx = -1;
+              } else if (gameMode === "teambattle") {
+                state = "teamselect";
+                return;
               } else {
                 resetWorld();
                 state = "play";
@@ -4556,6 +4644,13 @@
         state = "lobby";
         return true;
       }
+      const tbRect = menuTeamBattleButton();
+      if (x >= tbRect.x && x <= tbRect.x + tbRect.w && y >= tbRect.y && y <= tbRect.y + tbRect.h) {
+        gameMode = "teambattle";
+        charSelectPhase = 0; p1CharIdx = -1;
+        state = "charselect";
+        return true;
+      }
       return false;
     }
 
@@ -4566,6 +4661,7 @@
       ctx.scale(camera.zoom, camera.zoom);
       ctx.translate(-camera.x, -camera.y);
       drawGround();
+      if (gameMode === "teambattle") drawFacilitiesWorld();
       drawFacility();
       drawProps();
       drawFixtureBodies();
@@ -4580,9 +4676,11 @@
       drawFlameBursts();
       for (const gb of groundBurns) drawGroundBurn(gb);
       for (const e of enemies) drawEnemy(e);
+      if (gameMode === "teambattle") drawCratesWorld();
       for (const dr of drones) drawDrone(dr);
       drawSpeechBubbles();
       drawPlayer();
+      if (gameMode === "teambattle") for (const ai of aiPlayers) { if (ai.alive) drawAiPlayer(ai); }
       if (mp.role === "host" && player2) drawRemotePlayer(player2, true);
       if (mp.role === "client" && remotePlayer) drawRemotePlayer(remotePlayer, false);
       drawParticles();
@@ -4606,6 +4704,7 @@
         drawP2StatusHud();
       } else {
         drawHud();
+        if (gameMode === "teambattle") drawTeamBattleHud();
         if (isMobile) drawMobileControls();
       }
     }
@@ -6906,7 +7005,7 @@
       ctx.restore();
 
       // HP 바
-      const maxHp = Math.round(100 * playerChar.hpMult);
+      const maxHp = Math.round((gameMode === "teambattle" ? 1000 : 100) * playerChar.hpMult);
       const hpRatio = Math.max(0, player.hp / maxHp);
       const hpColor = hpRatio > 0.5 ? "#22e870" : (hpRatio > 0.25 ? "#f0a020" : "#e83020");
       ctx.save();
@@ -7459,6 +7558,11 @@
           handleCharSelectClick(p.x, p.y);
           return;
         }
+        if (state === "teamselect") {
+          handleTeamSelectClick(p.x, p.y);
+          return;
+        }
+        if (state === "play" && teamBattleWon !== null) { gameMode = "classic"; goMainMenu(); return; }
         if (state === "dead") {
           startGame();
           return;
@@ -8458,10 +8562,358 @@
       }
     }
 
+    // ==================== TEAM BATTLE ====================
+
+    function drawTeamSelect() {
+      const cx = width/2, cy = height/2;
+      ctx.fillStyle = "#060404"; ctx.fillRect(0,0,width,height);
+      const vg = ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(width,height)*0.72);
+      vg.addColorStop(0,"rgba(30,0,0,0)"); vg.addColorStop(1,"rgba(0,0,0,0.75)");
+      ctx.fillStyle=vg; ctx.fillRect(0,0,width,height);
+      ctx.textAlign="center";
+      ctx.fillStyle="#d0a030";
+      ctx.font=`bold ${Math.min(18,width*0.03)}px monospace`;
+      ctx.fillText("★  TEAM BATTLE — SELECT YOUR SIDE  ★", cx, cy-100);
+      const {blue,red}=teamSelectBtnRects();
+      // BLUE button
+      ctx.fillStyle="rgba(10,30,120,0.88)"; ctx.fillRect(blue.x,blue.y,blue.w,blue.h);
+      ctx.strokeStyle="#4488ff"; ctx.lineWidth=2; ctx.strokeRect(blue.x,blue.y,blue.w,blue.h);
+      ctx.fillStyle="#88ccff"; ctx.font=`bold ${Math.min(22,width*0.034)}px Arial`;
+      ctx.fillText("BLUE",blue.x+blue.w/2,blue.y+blue.h*0.52);
+      ctx.fillStyle="#5588aa"; ctx.font=`${Math.min(10,width*0.016)}px monospace`;
+      ctx.fillText("LEFT BASE",blue.x+blue.w/2,blue.y+blue.h*0.8);
+      // RED button
+      ctx.fillStyle="rgba(120,10,10,0.88)"; ctx.fillRect(red.x,red.y,red.w,red.h);
+      ctx.strokeStyle="#ff4444"; ctx.lineWidth=2; ctx.strokeRect(red.x,red.y,red.w,red.h);
+      ctx.fillStyle="#ff9988"; ctx.font=`bold ${Math.min(22,width*0.034)}px Arial`;
+      ctx.fillText("RED",red.x+red.w/2,red.y+red.h*0.52);
+      ctx.fillStyle="#aa5555"; ctx.font=`${Math.min(10,width*0.016)}px monospace`;
+      ctx.fillText("RIGHT BASE",red.x+red.w/2,red.y+red.h*0.8);
+      // Desc
+      ctx.fillStyle="#887766"; ctx.font=`${Math.min(11,width*0.018)}px monospace`;
+      ctx.fillText("AI 아군과 함께 적 기지(HP 3000)를 파괴하면 승리!", cx, cy+62);
+      // Back button
+      ctx.fillStyle="rgba(0,0,0,0.5)"; ctx.fillRect(8,8,80,26);
+      ctx.strokeStyle="rgba(180,120,30,0.6)"; ctx.lineWidth=1; ctx.strokeRect(8,8,80,26);
+      ctx.fillStyle="#c08030"; ctx.font="bold 11px monospace"; ctx.textAlign="left";
+      ctx.fillText("◀ BACK",14,25);
+    }
+
+    function teamSelectBtnRects() {
+      const cx=width/2, cy=height/2;
+      const btnW=Math.min(180,width*0.26), btnH=64, gap=Math.min(30,width*0.04);
+      return {
+        blue:{ x:cx-btnW-gap/2, y:cy-btnH/2, w:btnW, h:btnH },
+        red: { x:cx+gap/2,      y:cy-btnH/2, w:btnW, h:btnH },
+      };
+    }
+
+    function handleTeamSelectClick(x, y) {
+      if (x>=8 && x<=88 && y>=8 && y<=34) { state="menu"; gameMode="classic"; return; }
+      const {blue,red}=teamSelectBtnRects();
+      if (x>=blue.x && x<=blue.x+blue.w && y>=blue.y && y<=blue.y+blue.h) { playerTeam=0; startTeamBattle(); return; }
+      if (x>=red.x  && x<=red.x+red.w   && y>=red.y  && y<=red.y+red.h)  { playerTeam=1; startTeamBattle(); return; }
+    }
+
+    function startTeamBattle() {
+      ensureAudio();
+      gameMode = "teambattle";
+      resetWorld();
+      buildTeamBattleMap();
+      if (playerTeam===0) { player.x=300; player.y=800; player.angle=0; }
+      else                { player.x=world.w-300; player.y=800; player.angle=Math.PI; }
+      player.hp = Math.round(1000 * playerChar.hpMult);
+      facilities.length=0;
+      facilities.push({ x:50,           y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
+      facilities.push({ x:world.w-250,  y:600, w:200, h:400, hp:3000, maxHp:3000, team:1 });
+      teamBattleWon=null; tbTimer=0;
+      setupAiPlayers();
+      setupCrates();
+      enemies.length=0;
+      state="play";
+    }
+
+    function buildTeamBattleMap() {
+      walls.length=0; doors.length=0;
+      const W=world.w, H=world.h, t=42;
+      addWall(0,0,W,t); addWall(0,H-t,W,t);
+      addWall(0,0,t,H); addWall(W-t,0,t,H);
+      // BLUE base wall (x=480) with door
+      addWall(480,t,t,H/2-120);
+      addDoor(480,H/2-120,t,240,"v");
+      addWall(480,H/2+120,t,H-(H/2+120)-t);
+      // RED base wall (symmetric)
+      addWall(W-480-t,t,t,H/2-120);
+      addDoor(W-480-t,H/2-120,t,240,"v");
+      addWall(W-480-t,H/2+120,t,H-(H/2+120)-t);
+      // Top corridor walls with center gap (~400px)
+      const midX=W/2;
+      addWall(480+t,t,(midX-200)-(480+t),t);
+      addWall(midX+200,t,(W-480-t)-(midX+200),t);
+      // Bottom corridor walls
+      addWall(480+t,H-2*t,(midX-200)-(480+t),t);
+      addWall(midX+200,H-2*t,(W-480-t)-(midX+200),t);
+      // Center cross
+      const mY=H/2;
+      addWall(midX-100,mY-21,200,42);
+      addWall(midX-21,mY-100,42,200);
+      // NW cover (L)
+      addWall(midX-370,mY-220,120,42);
+      addWall(midX-370,mY-220,42,120);
+      // NE cover (L)
+      addWall(midX+250,mY-220,120,42);
+      addWall(midX+328,mY-220,42,120);
+      // SW cover (L)
+      addWall(midX-370,mY+100,42,120);
+      addWall(midX-370,mY+178,120,42);
+      // SE cover (L)
+      addWall(midX+250,mY+178,120,42);
+      addWall(midX+328,mY+100,42,120);
+      // Flanking pillars
+      addWall(710,mY-90,42,180);
+      addWall(W-710-42,mY-90,42,180);
+      usingCustomMap=true;
+    }
+
+    function setupAiPlayers() {
+      aiPlayers.length=0;
+      const bx=380, rx=world.w-380;
+      [
+        {team:0,charIdx:0,x:bx,  y:720},{team:0,charIdx:3,x:bx,  y:880},{team:0,charIdx:2,x:bx-70,y:800},
+        {team:1,charIdx:0,x:rx,  y:720},{team:1,charIdx:3,x:rx,  y:880},{team:1,charIdx:2,x:rx+70,y:800},
+      ].forEach(d=>{
+        const ch=CHAR_DEFS[d.charIdx];
+        aiPlayers.push({ team:d.team, charIdx:d.charIdx, x:d.x, y:d.y,
+          hp:Math.round(1000*ch.hpMult), maxHp:Math.round(1000*ch.hpMult),
+          angle:d.team===0?0:Math.PI, speed:180*ch.speedMult,
+          shootCd:Math.random()*1.2, alive:true, col:ch.col, build:ch.build, name:ch.name });
+      });
+    }
+
+    function setupCrates() {
+      crates.length=0;
+      const W=world.w, H=world.h, mX=W/2, mY=H/2;
+      [{x:mX,y:mY-300},{x:mX,y:mY+300},{x:mX-230,y:mY-170},{x:mX+230,y:mY-170},
+       {x:mX-230,y:mY+170},{x:mX+230,y:mY+170},{x:730,y:mY},{x:W-730,y:mY},
+       {x:mX-390,y:mY-70},{x:mX+390,y:mY-70},{x:mX-390,y:mY+70},{x:mX+390,y:mY+70}]
+      .forEach(p=>crates.push({x:p.x,y:p.y,w:50,h:50,hp:200,maxHp:200,dead:false}));
+    }
+
+    function updateAiPlayers(dt) {
+      for (const ai of aiPlayers) {
+        if (!ai.alive) continue;
+        let target=null, bestDist=Infinity;
+        if (ai.team!==playerTeam && player.hp>0) {
+          const d=Math.hypot(player.x-ai.x,player.y-ai.y);
+          if (d<bestDist){bestDist=d; target={x:player.x,y:player.y,isPlayer:true};}
+        }
+        for (const o of aiPlayers) {
+          if (!o.alive||o.team===ai.team) continue;
+          const d=Math.hypot(o.x-ai.x,o.y-ai.y);
+          if (d<bestDist){bestDist=d; target=o;}
+        }
+        if (!target) {
+          for (const fac of facilities) {
+            if (fac.team===ai.team||fac.hp<=0) continue;
+            const d=Math.hypot(fac.x+fac.w/2-ai.x,fac.y+fac.h/2-ai.y);
+            if (d<bestDist){bestDist=d; target={x:fac.x+fac.w/2,y:fac.y+fac.h/2,isFacility:true,fac};}
+          }
+        }
+        if (!target) continue;
+        const tdx=target.x-ai.x, tdy=target.y-ai.y, td=Math.hypot(tdx,tdy)||1;
+        ai.angle=Math.atan2(tdy,tdx);
+        if (td>(target.isFacility?160:200)) {
+          ai.x+=tdx/td*ai.speed*dt; ai.y+=tdy/td*ai.speed*dt;
+          ai.x=Math.max(60,Math.min(world.w-60,ai.x));
+          ai.y=Math.max(60,Math.min(world.h-60,ai.y));
+        }
+        ai.shootCd-=dt;
+        if (ai.shootCd<=0&&td<650) {
+          ai.shootCd=0.75+Math.random()*0.65;
+          if (Math.random()<0.65) {
+            if (target.isPlayer&&player.invuln<=0) {
+              player.hp-=12+Math.round(Math.random()*8);
+              if (player.hp<=0){player.hp=0; state="dead";}
+            } else if (target.alive!==undefined) {
+              target.hp-=20; if (target.hp<=0){target.hp=0;target.alive=false;}
+            } else if (target.isFacility) {
+              target.fac.hp=Math.max(0,target.fac.hp-22);
+            }
+          }
+        }
+      }
+    }
+
+    function updateFacilities(dt) { /* placeholder */ }
+
+    function checkTeamBattleWin() {
+      if (teamBattleWon!==null) return;
+      for (const fac of facilities) {
+        if (fac.hp<=0) { teamBattleWon=(fac.team===playerTeam)?"lose":"win"; return; }
+      }
+    }
+
+    function applyTBHit(hit, dmg) {
+      if (!hit||gameMode!=="teambattle") return;
+      if (hit.aiPlayer) {
+        hit.aiPlayer.hp-=dmg; burst(hit.x,hit.y,"#ffaa44",5);
+        if (hit.aiPlayer.hp<=0){hit.aiPlayer.hp=0;hit.aiPlayer.alive=false;}
+      } else if (hit.facility) {
+        hit.facility.hp=Math.max(0,hit.facility.hp-dmg);
+        burst(hit.x,hit.y,hit.facility.team===1?"#ff6644":"#4488ff",5);
+      } else if (hit.crate) {
+        hit.crate.hp-=dmg; burst(hit.x,hit.y,"#c8a030",4);
+        if (hit.crate.hp<=0){hit.crate.dead=true; pickups.push({x:hit.crate.x,y:hit.crate.y,r:17,type:"heal",life:8,pulse:0});}
+      }
+    }
+
+    function drawAiPlayer(ai) {
+      ctx.save();
+      ctx.translate(ai.x,ai.y); ctx.rotate(ai.angle);
+      const isAlly=(ai.team===playerTeam), sz=18;
+      const g=ctx.createRadialGradient(0,0,0,0,0,sz*1.8);
+      g.addColorStop(0,isAlly?"rgba(60,120,255,0.22)":"rgba(255,60,60,0.22)");
+      g.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,sz*1.8,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=isAlly?"#1a3a8a":"#8a1a1a";
+      ctx.beginPath(); ctx.arc(0,0,sz,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=isAlly?"#6699ff":"#ff6666"; ctx.lineWidth=2.5; ctx.stroke();
+      ctx.fillStyle=isAlly?"#2255cc":"#cc2222";
+      ctx.beginPath(); ctx.arc(-sz*0.38,-sz*0.48,sz*0.32,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-sz*0.38, sz*0.48,sz*0.32,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=isAlly?"#88ddff":"#ffcc44";
+      ctx.fillRect(sz*0.1,-sz*0.26,sz*0.62,sz*0.52);
+      ctx.fillStyle="#555"; ctx.fillRect(sz*0.7,-3,sz*0.9,6);
+      ctx.restore();
+      const hpFrac=Math.max(0,ai.hp/ai.maxHp), bw=40;
+      ctx.save();
+      ctx.fillStyle="rgba(0,0,0,0.7)"; ctx.fillRect(ai.x-bw/2,ai.y-sz-14,bw,5);
+      ctx.fillStyle=isAlly?"#44ff88":"#ff4444";
+      ctx.fillRect(ai.x-bw/2,ai.y-sz-14,bw*hpFrac,5);
+      ctx.strokeStyle=isAlly?"#88ffbb":"#ff8888"; ctx.lineWidth=0.8;
+      ctx.strokeRect(ai.x-bw/2,ai.y-sz-14,bw,5);
+      ctx.fillStyle="rgba(255,255,255,0.9)"; ctx.font="bold 8px monospace";
+      ctx.textAlign="center";
+      ctx.fillText(ai.name+(isAlly?" ●":" ◆"),ai.x,ai.y-sz-17);
+      ctx.restore();
+    }
+
+    function drawFacilitiesWorld() {
+      const now=performance.now()*0.001;
+      for (const fac of facilities) {
+        const isOwn=(fac.team===playerTeam);
+        ctx.save();
+        const gw=ctx.createRadialGradient(fac.x+fac.w/2,fac.y+fac.h/2,0,fac.x+fac.w/2,fac.y+fac.h/2,fac.w*1.4);
+        gw.addColorStop(0,isOwn?"rgba(40,80,220,0.2)":"rgba(220,40,40,0.2)");
+        gw.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=gw; ctx.fillRect(fac.x-50,fac.y-50,fac.w+100,fac.h+100);
+        ctx.fillStyle=isOwn?"rgba(12,28,100,0.85)":"rgba(100,12,12,0.85)";
+        ctx.fillRect(fac.x,fac.y,fac.w,fac.h);
+        const pulse=0.55+Math.sin(now*2.4)*0.35;
+        ctx.strokeStyle=isOwn?`rgba(60,120,255,${pulse})`:`rgba(255,60,60,${pulse})`; ctx.lineWidth=3;
+        ctx.strokeRect(fac.x,fac.y,fac.w,fac.h);
+        ctx.strokeStyle=isOwn?"rgba(40,90,200,0.28)":"rgba(200,40,40,0.28)"; ctx.lineWidth=1;
+        ctx.strokeRect(fac.x+8,fac.y+8,fac.w-16,fac.h-16);
+        // Label
+        ctx.fillStyle=isOwn?"#8aafff":"#ffaaaa";
+        ctx.font=`bold ${Math.max(11,fac.w*0.13)}px monospace`;
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(isOwn?"BASE":"ENEMY",fac.x+fac.w/2,fac.y+fac.h*0.35);
+        ctx.fillStyle=isOwn?"#4488ff":"#ff4444";
+        ctx.font=`bold ${Math.max(9,fac.w*0.1)}px monospace`;
+        ctx.fillText(isOwn?"BLUE":"RED",fac.x+fac.w/2,fac.y+fac.h*0.52);
+        // Internal HP bar
+        const hpFrac=Math.max(0,fac.hp/fac.maxHp);
+        ctx.fillStyle="rgba(0,0,0,0.55)"; ctx.fillRect(fac.x+12,fac.y+fac.h-22,fac.w-24,10);
+        ctx.fillStyle=isOwn?"#44ff88":"#ff4444";
+        ctx.fillRect(fac.x+12,fac.y+fac.h-22,(fac.w-24)*hpFrac,10);
+        ctx.textBaseline="alphabetic";
+        ctx.restore();
+      }
+    }
+
+    function drawCratesWorld() {
+      for (const cr of crates) {
+        if (cr.dead) continue;
+        ctx.save();
+        ctx.fillStyle="#6a4a10"; ctx.fillRect(cr.x-cr.w/2,cr.y-cr.h/2,cr.w,cr.h);
+        ctx.strokeStyle="#8a6018"; ctx.lineWidth=2; ctx.strokeRect(cr.x-cr.w/2,cr.y-cr.h/2,cr.w,cr.h);
+        ctx.strokeStyle="#7a5514"; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(cr.x-cr.w/2,cr.y); ctx.lineTo(cr.x+cr.w/2,cr.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cr.x,cr.y-cr.h/2); ctx.lineTo(cr.x,cr.y+cr.h/2); ctx.stroke();
+        if (cr.hp<cr.maxHp) {
+          const hpFrac=cr.hp/cr.maxHp;
+          ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(cr.x-cr.w/2,cr.y-cr.h/2-9,cr.w,6);
+          ctx.fillStyle=hpFrac>0.5?"#ffcc44":"#ff6622";
+          ctx.fillRect(cr.x-cr.w/2,cr.y-cr.h/2-9,cr.w*hpFrac,6);
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawTeamBattleHud() {
+      ctx.save();
+      ctx.setTransform(scale,0,0,scale,splitPanelOffsetX*scale,0);
+      const now=performance.now()*0.001, cx=width/2;
+      const blue=facilities.find(f=>f.team===0), red=facilities.find(f=>f.team===1);
+      const barW=Math.min(160,width*0.22), barH=14;
+      // BLUE bar
+      const bx=cx-barW-52;
+      if (blue) {
+        ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(bx,6,barW,barH);
+        const bf=Math.max(0,blue.hp/blue.maxHp);
+        ctx.fillStyle=`rgba(44,110,255,${0.8+Math.sin(now*3)*0.1})`;
+        ctx.fillRect(bx,6,barW*bf,barH);
+        ctx.strokeStyle=blue.hp<=0?"#ff4444":"#5588ff"; ctx.lineWidth=1.2; ctx.strokeRect(bx,6,barW,barH);
+        ctx.fillStyle="#aaccff"; ctx.font="bold 9px monospace"; ctx.textAlign="center";
+        ctx.fillText(`BLUE  ${Math.ceil(blue.hp)}/${blue.maxHp}`,bx+barW/2,4);
+      }
+      // RED bar
+      const rx=cx+52;
+      if (red) {
+        ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(rx,6,barW,barH);
+        const rf=Math.max(0,red.hp/red.maxHp);
+        ctx.fillStyle=`rgba(255,50,50,${0.8+Math.sin(now*3)*0.1})`;
+        ctx.fillRect(rx,6,barW*rf,barH);
+        ctx.strokeStyle=red.hp<=0?"#4444ff":"#ff5555"; ctx.lineWidth=1.2; ctx.strokeRect(rx,6,barW,barH);
+        ctx.fillStyle="#ffaaaa"; ctx.font="bold 9px monospace"; ctx.textAlign="center";
+        ctx.fillText(`RED  ${Math.ceil(red.hp)}/${red.maxHp}`,rx+barW/2,4);
+      }
+      // Team AI count
+      const ba=aiPlayers.filter(a=>a.team===0&&a.alive).length;
+      const ra=aiPlayers.filter(a=>a.team===1&&a.alive).length;
+      ctx.fillStyle="#6688aa"; ctx.font="8px monospace"; ctx.textAlign="center";
+      ctx.fillText(`[BLUE ${playerTeam===0?ba+1:ba}] vs [RED ${playerTeam===1?ra+1:ra}]`,cx,26);
+      // Win/lose overlay
+      if (teamBattleWon!==null) {
+        ctx.fillStyle=teamBattleWon==="win"?"rgba(0,30,100,0.58)":"rgba(80,0,0,0.58)";
+        ctx.fillRect(0,0,width,height);
+        ctx.textAlign="center";
+        const bigFont=Math.min(70,width*0.1);
+        ctx.shadowColor=teamBattleWon==="win"?"#4488ff":"#ff4444"; ctx.shadowBlur=42;
+        ctx.fillStyle="#ffffff";
+        ctx.font=`900 ${bigFont}px Arial Black,Impact,Arial`;
+        ctx.fillText(teamBattleWon==="win"?"VICTORY!":"DEFEAT",width/2,height*0.42);
+        ctx.shadowBlur=0;
+        ctx.fillStyle=teamBattleWon==="win"?"#88ccff":"#ffaaaa";
+        ctx.font=`bold ${Math.min(15,width*0.026)}px monospace`;
+        ctx.fillText(teamBattleWon==="win"?"Enemy base destroyed!":"Your base was destroyed!",width/2,height*0.545);
+        ctx.fillStyle="#888"; ctx.font=`${Math.min(12,width*0.02)}px monospace`;
+        ctx.fillText("Tap / Click to return to menu",width/2,height*0.62);
+      }
+      ctx.restore();
+    }
+
+    // ==================== END TEAM BATTLE ====================
+
     // ==================== MULTIPLAYER ====================
 
     function menuCoopButton() {
       return { x: width / 2 - 86, y: Math.min(height - 120, height * 0.66), w: 172, h: 42 };
+    }
+
+    function menuTeamBattleButton() {
+      return { x: width / 2 - 86, y: Math.min(height - 168, height * 0.57), w: 172, h: 42 };
     }
 
     function lobbyButtonRects() {

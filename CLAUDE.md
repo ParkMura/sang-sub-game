@@ -107,6 +107,15 @@ ParkMura/sang-sub-game 저장소의 CLAUDE.md 읽고 게임 작업 이어서 해
 | 76 | 캐릭터 초상화 | drawCharPortrait() → HAWK(파란 울트라마린), BULL(벌키 터미네이터), VIPER(날씬 저격수), MEDIC(여성 아포세카리) |
 | 77 | 모바일 DETONATE 버튼 | BULL 캐릭터 + C4 설치 시 AIM 조이스틱 좌측에 DETONATE 버튼 표시 |
 
+| 78 | 팀 배틀 게임모드 | 메뉴 "TEAM BATTLE" 버튼 → 캐릭터선택 → 팀선택(BLUE/RED) → 대칭맵 시작 |
+| 79 | 팀 배틀 맵 | 대칭 맵 — 양측 기지벽+도어, 중앙 십자+L자 엄폐물, 측면 기둥 |
+| 80 | 기지(Facility) 시스템 | 양팀 기지 HP 3000, 총알 직접 피격 데미지, 내부 HP바+발광 효과 |
+| 81 | AI 플레이어 (팀당 3명) | `aiPlayers[]` — 상대팀 우선 추적, 65% 적중률, 기지도 공격 |
+| 82 | 파괴 가능 상자 | `crates[]` 12개 대칭 배치, HP 200, 파괴시 힐 픽업 드롭 |
+| 83 | 팀 배틀 HUD | 상단 BLUE/RED 기지 HP바, AI 생존수 표시, 승/패 오버레이 |
+| 84 | 팀 배틀 승패 | 기지 HP 0 → VICTORY/DEFEAT 화면, 탭으로 메뉴 복귀 |
+| 85 | HP 리밸런싱 | 팀배틀 기준 1000×hpMult — BULL 1000, HAWK 750, VIPER 500, MEDIC 600 |
+
 ## 미구현 (요청됨)
 - 브롤스타즈식 사선 시야
 - 주소창 숨기기
