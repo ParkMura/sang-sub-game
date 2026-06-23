@@ -118,7 +118,18 @@
     const mp = {
       role: null, peer: null, conn: null, roomCode: null,
       connected: false, codeInput: "", status: "", stateTimer: 0,
+      // 온라인 팀배틀 확장
+      conns: [],       // HOST: [{conn, id}]
+      inputMap: {},    // HOST: {id: {mx,my,angle,shoot,bomb,skill}}
     };
+    // 온라인 팀배틀 전용 변수
+    const tbNetPlayers   = []; // HOST: 원격 인간 플레이어 객체
+    const remoteNetPlayers = []; // CLIENT: 다른 인간 플레이어 시각 상태
+    let tbOnlineMode   = false; // 온라인 팀배틀 여부
+    let myNetId        = 0;     // 내 네트워크 ID (HOST=0, CLIENT=1~7)
+    let tbLobbyMyChar  = 0;     // 로비에서 선택한 캐릭터
+    let tbLobbyMyTeam  = -1;    // 로비에서 선택한 팀
+    let tbLobbyPlayers = [];    // [{id,charIdx,team}] 로비 플레이어 목록
     let player2 = null;
     let remotePlayer = null;
     let remotePlayerTarget = null;
@@ -341,11 +352,12 @@
         startIntroSequence();
         return;
       }
-      if (state === "play" && teamBattleWon !== null) { gameMode = "classic"; goMainMenu(); return; }
+      if (state === "play" && teamBattleWon !== null) { gameMode = "classic"; tbOnlineMode=false; goMainMenu(); return; }
       if (state === "menu" && handleMenuClick(mouse.x, mouse.y)) return;
       if (state === "charselect") { handleCharSelectClick(mouse.x, mouse.y); return; }
       if (state === "teamselect") { handleTeamSelectClick(mouse.x, mouse.y); return; }
       if (state === "lobby" && handleLobbyClick(mouse.x, mouse.y)) return;
+      if (state === "onlinelobby") { handleOnlineLobbyClick(mouse.x, mouse.y); return; }
       if (state === "maptool") {
         handleMapToolMouseDown(event);
         return;
@@ -2650,6 +2662,15 @@
       if (gameMode === "teambattle") {
         tbTimer += dt;
         updateAiPlayers(dt);
+        if (tbOnlineMode) {
+          if (mp.role === "tbhost") {
+            updateTBNetPlayers(dt);
+            mp.stateTimer = (mp.stateTimer||0) + dt;
+            if (mp.stateTimer >= 0.05) { mp.stateTimer = 0; sendTBState(); }
+          } else if (mp.role === "tbclient") {
+            sendTBInput();
+          }
+        }
         updateFacilities(dt);
         checkTeamBattleWin();
       }
@@ -3447,6 +3468,7 @@
       if (state === "intro") drawIntroLogo();
       else if (state === "menu") drawMenu();
       else if (state === "lobby") drawLobby();
+      else if (state === "onlinelobby") drawOnlineLobby();
       else if (state === "charselect") drawCharSelect();
       else if (state === "teamselect") drawTeamSelect();
       else if (state === "maptool") drawMapTool();
@@ -4362,9 +4384,10 @@
       ctx.restore();
 
       drawMenuCastShowcase();
-      drawMenuButton(menuMapToolButton(), "MAP TOOL", false);
-      drawMenuButton(menuCoopButton(), "2P CO-OP", false);
-      drawMenuButton(menuTeamBattleButton(), "TEAM BATTLE", false);
+      drawMenuButton(menuOnlineButton(),      "ONLINE BATTLE", false);
+      drawMenuButton(menuTeamBattleButton(),  "TEAM BATTLE",   false);
+      drawMenuButton(menuCoopButton(),        "2P CO-OP",      false);
+      drawMenuButton(menuMapToolButton(),     "MAP TOOL",      false);
     }
 
     function drawGoldLine(cx, y, halfW) {
@@ -4416,7 +4439,7 @@
     }
 
     function menuMapToolButton() {
-      return { x: width / 2 - 86, y: Math.min(height - 74, height * 0.76), w: 172, h: 42 };
+      return { x: width / 2 - 86, y: Math.min(height - 28, height * 0.85), w: 172, h: 42 };
     }
 
     function drawMenuCastShowcase() {
@@ -4633,23 +4656,23 @@
     }
 
     function handleMenuClick(x, y) {
-      const rect = menuMapToolButton();
-      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) {
-        startMapTool();
-        return true;
+      const onlineRect = menuOnlineButton();
+      if (x >= onlineRect.x && x <= onlineRect.x+onlineRect.w && y >= onlineRect.y && y <= onlineRect.y+onlineRect.h) {
+        resetTBOnline(); state = "onlinelobby"; return true;
+      }
+      const tbRect = menuTeamBattleButton();
+      if (x >= tbRect.x && x <= tbRect.x + tbRect.w && y >= tbRect.y && y <= tbRect.y + tbRect.h) {
+        gameMode = "teambattle"; charSelectPhase = 0; p1CharIdx = -1;
+        state = "charselect"; return true;
       }
       const coopRect = menuCoopButton();
       if (x >= coopRect.x && x <= coopRect.x + coopRect.w && y >= coopRect.y && y <= coopRect.y + coopRect.h) {
         mp.role = null; mp.codeInput = ""; mp.status = "";
-        state = "lobby";
-        return true;
+        state = "lobby"; return true;
       }
-      const tbRect = menuTeamBattleButton();
-      if (x >= tbRect.x && x <= tbRect.x + tbRect.w && y >= tbRect.y && y <= tbRect.y + tbRect.h) {
-        gameMode = "teambattle";
-        charSelectPhase = 0; p1CharIdx = -1;
-        state = "charselect";
-        return true;
+      const rect = menuMapToolButton();
+      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) {
+        startMapTool(); return true;
       }
       return false;
     }
@@ -4681,6 +4704,10 @@
       drawSpeechBubbles();
       drawPlayer();
       if (gameMode === "teambattle") for (const ai of aiPlayers) { if (ai.alive) drawAiPlayer(ai); }
+      if (gameMode === "teambattle" && tbOnlineMode) {
+        for (const np of tbNetPlayers) if (np.alive) drawRemoteNetPlayer(np);
+        for (const rp of remoteNetPlayers) drawRemoteNetPlayer(rp);
+      }
       if (mp.role === "host" && player2) drawRemotePlayer(player2, true);
       if (mp.role === "client" && remotePlayer) drawRemotePlayer(remotePlayer, false);
       drawParticles();
@@ -8955,11 +8982,558 @@
     // ==================== MULTIPLAYER ====================
 
     function menuCoopButton() {
-      return { x: width / 2 - 86, y: Math.min(height - 120, height * 0.66), w: 172, h: 42 };
+      return { x: width / 2 - 86, y: Math.min(height - 74,  height * 0.76), w: 172, h: 42 };
+    }
+    function menuOnlineButton() {
+      return { x: width / 2 - 86, y: Math.min(height - 214, height * 0.47), w: 172, h: 42 };
     }
 
+    // ==================== ONLINE TEAM BATTLE ====================
+
+    function resetTBOnline() {
+      tbOnlineMode = false; myNetId = 0;
+      tbNetPlayers.length = 0; remoteNetPlayers.length = 0;
+      tbLobbyMyChar = 0; tbLobbyMyTeam = -1; tbLobbyPlayers = [];
+      mp.conns = []; mp.inputMap = {};
+      mp.role = null; mp.codeInput = ""; mp.status = "";
+      if (mp.peer) { try { mp.peer.destroy(); } catch(e) {} mp.peer = null; }
+    }
+
+    function initTBHost() {
+      mp.role = "tbhost";
+      mp.roomCode = String(Math.floor(1000 + Math.random() * 9000));
+      mp.status = "대기 중…";
+      mp.conns = []; mp.inputMap = {};
+      try {
+        mp.peer = new Peer("sangsub-tb-" + mp.roomCode, { debug: 0 });
+        mp.peer.on("open", () => { mp.status = "대기 중…"; });
+        mp.peer.on("error", err => { mp.status = "오류: " + (err.type || err); });
+        mp.peer.on("connection", conn => {
+          if (mp.conns.length >= 7) { conn.close(); return; }
+          const cid = mp.conns.length + 1;
+          mp.conns.push({ conn, id: cid });
+          mp.inputMap[cid] = { mx:0, my:0, angle:0, shoot:false, bomb:false, skill:false };
+          conn.on("open", () => {
+            conn.send({ type:"tbwelcome", id: cid });
+            broadcastTBLobby();
+          });
+          conn.on("data", d => {
+            if (!d) return;
+            if (d.type === "tbpick") {
+              tbLobbyPlayers = tbLobbyPlayers.filter(p => p.id !== d.id);
+              tbLobbyPlayers.push({ id: d.id, charIdx: d.charIdx, team: d.team });
+              broadcastTBLobby();
+            } else if (d.type === "tbinput") {
+              mp.inputMap[d.id] = d;
+            }
+          });
+          conn.on("close", () => {
+            mp.conns = mp.conns.filter(c => c.id !== cid);
+            tbLobbyPlayers = tbLobbyPlayers.filter(p => p.id !== cid);
+            broadcastTBLobby();
+          });
+        });
+      } catch(e) { mp.status = "PeerJS 오류 — 인터넷 확인"; }
+    }
+
+    function joinTBRoom(code) {
+      mp.status = "연결 중…";
+      try {
+        mp.peer = new Peer({ debug: 0 });
+        mp.peer.on("open", () => {
+          const conn = mp.peer.connect("sangsub-tb-" + code, { reliable: true, serialization: "json" });
+          mp.conn = conn;
+          conn.on("open", () => { mp.connected = true; mp.status = "연결됨!"; });
+          conn.on("data", d => {
+            if (!d) return;
+            if (d.type === "tbwelcome") {
+              myNetId = d.id; mp.role = "tbclient"; mp.status = "로비 대기 중";
+              // 바로 내 선택 전송
+              sendMyTBPick();
+            } else if (d.type === "tblobby") {
+              tbLobbyPlayers = d.players;
+            } else if (d.type === "tbstart") {
+              applyTBStart(d);
+            } else if (d.type === "tbstate") {
+              applyTBNetState(d);
+            }
+          });
+          conn.on("close", () => { mp.connected = false; mp.status = "연결 끊김"; });
+          conn.on("error", err => { mp.status = "연결 오류: " + (err.type||err); });
+        });
+        mp.peer.on("error", err => { mp.status = "오류: " + (err.type||err); });
+      } catch(e) { mp.status = "PeerJS 오류 — 인터넷 확인"; }
+    }
+
+    function sendMyTBPick() {
+      if (!mp.conn || !mp.connected) return;
+      try { mp.conn.send({ type:"tbpick", id:myNetId, charIdx:tbLobbyMyChar, team:tbLobbyMyTeam }); } catch(e) {}
+    }
+
+    function broadcastTBLobby() {
+      const all = [{ id:0, charIdx:tbLobbyMyChar, team:tbLobbyMyTeam }, ...tbLobbyPlayers];
+      mp.conns.forEach(c => { try { c.conn.send({ type:"tblobby", players: all }); } catch(e) {} });
+      tbLobbyPlayers = tbLobbyPlayers.filter(p => mp.conns.some(c => c.id === p.id));
+    }
+
+    function startTBOnlineGame() {
+      // HOST: 팀별 인간 플레이어 정리
+      gameMode = "teambattle"; tbOnlineMode = true; myNetId = 0;
+      // 호스트 선택
+      playerChar = CHAR_DEFS[tbLobbyMyChar];
+      playerTeam = tbLobbyMyTeam < 0 ? 0 : tbLobbyMyTeam;
+      ensureAudio();
+      resetWorld();
+      buildTeamBattleMap();
+
+      // 시설물 & 초기 배치
+      facilities.length = 0;
+      facilities.push({ x:50, y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
+      facilities.push({ x:world.w-250, y:600, w:200, h:400, hp:3000, maxHp:3000, team:1 });
+      teamBattleWon = null; tbTimer = 0;
+
+      // 호스트 플레이어 위치
+      player.hp = playerChar.tbHp;
+      if (playerTeam === 0) { player.x = 300; player.y = world.h/2; player.angle = 0; }
+      else { player.x = world.w-300; player.y = world.h/2; player.angle = Math.PI; }
+
+      // 접속 클라이언트를 tbNetPlayers로 등록
+      tbNetPlayers.length = 0;
+      for (const c of mp.conns) {
+        const pick = tbLobbyPlayers.find(p => p.id === c.id) || { charIdx:0, team:0 };
+        const ch = CHAR_DEFS[pick.charIdx];
+        const t = pick.team < 0 ? 0 : pick.team;
+        const sx = t===0 ? 300 : world.w-300;
+        tbNetPlayers.push({
+          id: c.id, charIdx: pick.charIdx, team: t,
+          x: sx + (Math.random()-0.5)*80, y: world.h/2 + (tbNetPlayers.length-3)*90,
+          angle: t===0?0:Math.PI, hp: ch.tbHp, maxHp: ch.tbHp, alive: true,
+          walkTime:0, isMoving:false, shootCd:0,
+        });
+      }
+
+      // AI로 각 팀 4명 채우기
+      setupAiPlayersOnline();
+      setupCrates();
+      enemies.length = 0;
+      state = "play";
+
+      // 클라이언트들에게 시작 알림
+      const startData = {
+        type:"tbstart",
+        hostCharIdx: playerChar.id, hostTeam: playerTeam,
+        netPlayers: tbNetPlayers.map(p=>({ id:p.id, charIdx:p.charIdx, team:p.team, x:p.x, y:p.y })),
+        facilities: facilities.map(f=>({ team:f.team, x:f.x, y:f.y, w:f.w, h:f.h, hp:f.hp, maxHp:f.maxHp })),
+      };
+      mp.conns.forEach(c => { try { c.conn.send(startData); } catch(e) {} });
+    }
+
+    function setupAiPlayersOnline() {
+      aiPlayers.length = 0;
+      // 팀별 인간 수 계산
+      const hCount = [0, 0];
+      hCount[playerTeam]++;
+      for (const np of tbNetPlayers) hCount[np.team]++;
+      const offsets = [{dx:0,dy:-160},{dx:-90,dy:0},{dx:0,dy:160},{dx:90,dy:0}];
+      for (let t = 0; t < 2; t++) {
+        const needed = Math.max(0, 4 - hCount[t]);
+        const startX = t===0 ? 320 : world.w-320;
+        let count = 0;
+        for (let ci = 0; ci < CHAR_DEFS.length && count < needed; ci++) {
+          const ch = CHAR_DEFS[ci];
+          const o = offsets[count];
+          aiPlayers.push({ team:t, charIdx:ci, x:startX+o.dx, y:world.h/2+o.dy,
+            hp:ch.tbHp, maxHp:ch.tbHp, angle:t===0?0:Math.PI, speed:170*ch.speedMult,
+            shootCd:Math.random()*1.2, walkTime:0, isMoving:false,
+            alive:true, col:ch.col, build:ch.build, name:ch.name });
+          count++;
+        }
+      }
+    }
+
+    function sendTBState() {
+      if (!mp.conns.length) return;
+      const d = {
+        type:"tbstate",
+        host:{ x:player.x, y:player.y, angle:player.angle, hp:player.hp, isMoving:player.isMoving },
+        netPlayers: tbNetPlayers.map(p=>({ id:p.id, x:p.x, y:p.y, angle:p.angle, hp:p.hp, alive:p.alive, isMoving:p.isMoving })),
+        aiPlayers: aiPlayers.map(a=>({ team:a.team, charIdx:a.charIdx, x:a.x, y:a.y, angle:a.angle, hp:a.hp, alive:a.alive, isMoving:a.isMoving })),
+        facilities: facilities.map(f=>({ team:f.team, hp:f.hp })),
+        crates: crates.map(c=>({ x:c.x, y:c.y, hp:c.hp, dead:c.dead })),
+        teamBattleWon, pickups: pickups.map(p=>({ x:p.x, y:p.y, r:p.r, type:p.type, life:p.life })),
+      };
+      mp.conns.forEach(c => { try { c.conn.send(d); } catch(e) {} });
+    }
+
+    function sendTBInput() {
+      if (!mp.conn || !mp.connected) return;
+      let mx=0, my=0;
+      if (keys.has("KeyW")||keys.has("ArrowUp"))    my--;
+      if (keys.has("KeyS")||keys.has("ArrowDown"))  my++;
+      if (keys.has("KeyA")||keys.has("ArrowLeft"))  mx--;
+      if (keys.has("KeyD")||keys.has("ArrowRight")) mx++;
+      if (isMobile && mobileControls.stickDir) { mx=mobileControls.stickDir.x; my=mobileControls.stickDir.y; }
+      const mag=Math.hypot(mx,my); if (mag>0.01){mx/=mag;my/=mag;}
+      const shoot=mouse.down||(isMobile&&(mobileControls.aimAtEdge||(mobileControls.shoot&&currentWeapon===0)));
+      try { mp.conn.send({ type:"tbinput", id:myNetId, mx, my, angle:player.angle, shoot, bomb:keys.has("KeyQ"), skill:keys.has("KeyE") }); } catch(e) {}
+    }
+
+    function applyTBStart(d) {
+      gameMode = "teambattle"; tbOnlineMode = true;
+      playerChar = CHAR_DEFS[d.myCharIdx !== undefined ? d.myCharIdx : tbLobbyMyChar];
+      playerTeam = d.myTeam !== undefined ? d.myTeam : tbLobbyMyTeam;
+      if (playerTeam < 0) playerTeam = 0;
+      const myEntry = d.netPlayers.find(p => p.id === myNetId);
+      ensureAudio();
+      resetWorld(); buildTeamBattleMap();
+      facilities.length = 0;
+      if (d.facilities) d.facilities.forEach(f => facilities.push({...f}));
+      else {
+        facilities.push({ x:50, y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
+        facilities.push({ x:world.w-250, y:600, w:200, h:400, hp:3000, maxHp:3000, team:1 });
+      }
+      teamBattleWon = null; tbTimer = 0;
+      player.hp = playerChar.tbHp;
+      if (myEntry) { player.x = myEntry.x; player.y = myEntry.y; }
+      else if (playerTeam===0) { player.x=300; player.y=world.h/2; }
+      else { player.x=world.w-300; player.y=world.h/2; }
+      player.angle = playerTeam===0 ? 0 : Math.PI;
+      remoteNetPlayers.length = 0;
+      d.netPlayers.forEach(p => {
+        if (p.id === myNetId) return; // 나는 player로 처리
+        const ch = CHAR_DEFS[p.charIdx||0];
+        remoteNetPlayers.push({ id:p.id, charIdx:p.charIdx, team:p.team, x:p.x, y:p.y,
+          angle:p.angle||0, hp:ch.tbHp, maxHp:ch.tbHp, alive:true, isMoving:false, walkTime:0 });
+      });
+      // 호스트도 원격 플레이어로 추가
+      const hostCh = CHAR_DEFS[d.hostCharIdx||0];
+      remoteNetPlayers.push({ id:0, charIdx:d.hostCharIdx||0, team:d.hostTeam||0,
+        x:d.hostTeam===0?300:world.w-300, y:world.h/2, angle:d.hostTeam===0?0:Math.PI,
+        hp:hostCh.tbHp, maxHp:hostCh.tbHp, alive:true, isMoving:false, walkTime:0 });
+      setupCrates(); enemies.length = 0;
+      state = "play";
+    }
+
+    function applyTBNetState(d) {
+      if (gameMode !== "teambattle") return;
+      // 원격 플레이어 상태 업데이트
+      const hostRp = remoteNetPlayers.find(p => p.id === 0);
+      if (hostRp && d.host) Object.assign(hostRp, d.host, { id:0 });
+      if (d.netPlayers) d.netPlayers.forEach(ns => {
+        if (ns.id === myNetId) {
+          // 내 HP는 호스트 권위
+          player.hp = ns.hp;
+          if (!ns.alive && player.hp <= 0) { player.hp = 0; if (state==="play") state="dead"; }
+          return;
+        }
+        const rp = remoteNetPlayers.find(p => p.id === ns.id);
+        if (rp) Object.assign(rp, ns);
+      });
+      // AI 상태
+      if (d.aiPlayers) d.aiPlayers.forEach((as, i) => {
+        if (i < aiPlayers.length) Object.assign(aiPlayers[i], as);
+      });
+      // 시설 HP
+      if (d.facilities) d.facilities.forEach(fs => {
+        const fac = facilities.find(f => f.team === fs.team);
+        if (fac) fac.hp = fs.hp;
+      });
+      // 상자
+      if (d.crates) d.crates.forEach((cs, i) => {
+        if (i < crates.length) { crates[i].hp = cs.hp; crates[i].dead = cs.dead; }
+      });
+      if (d.teamBattleWon !== undefined) teamBattleWon = d.teamBattleWon;
+    }
+
+    function updateTBNetPlayers(dt) {
+      // HOST: 각 클라이언트 입력을 적용하여 netPlayer 이동/사격 처리
+      for (const np of tbNetPlayers) {
+        if (!np.alive) continue;
+        const inp = mp.inputMap[np.id] || { mx:0, my:0, angle:0, shoot:false };
+        np.angle = inp.angle;
+        const spd = 200 * (CHAR_DEFS[np.charIdx]?.speedMult || 1);
+        if (Math.abs(inp.mx)+Math.abs(inp.my) > 0.05) {
+          const mag = Math.hypot(inp.mx, inp.my)||1;
+          np.x += inp.mx/mag * spd * dt; np.y += inp.my/mag * spd * dt;
+          np.x = Math.max(60,Math.min(world.w-60,np.x));
+          np.y = Math.max(60,Math.min(world.h-60,np.y));
+          np.walkTime += dt; np.isMoving = true;
+        } else { np.isMoving = false; }
+        // 총격 처리
+        np.shootCd = (np.shootCd||0) - dt;
+        if (inp.shoot && np.shootCd <= 0) {
+          np.shootCd = 0.12;
+          const ch = CHAR_DEFS[np.charIdx];
+          const dmg = 44;
+          const dx = Math.cos(np.angle), dy = Math.sin(np.angle);
+          const hit = raycastShot(np.x, np.y, dx, dy, 980);
+          if (hit.enemy) { hit.enemy.hp -= dmg; if (hit.enemy.hp<=0){hit.enemy.hp=0;hit.enemy.alive=false;} }
+          else applyTBHit(hit, dmg);
+          // 플레이어(호스트) 피격
+          const pdist = distToSegment(player.x,player.y, np.x,np.y, np.x+dx*980,np.y+dy*980);
+          if (pdist < 22 && np.team !== playerTeam && player.invuln<=0) {
+            player.hp -= dmg; if (player.hp<=0){player.hp=0; state="dead";}
+          }
+        }
+      }
+    }
+
+    function drawRemoteNetPlayer(rp) {
+      if (!rp.alive) return;
+      const ch = CHAR_DEFS[rp.charIdx || 0];
+      const isAlly = (rp.team === playerTeam);
+      const pc = ch.col;
+      ctx.save();
+      ctx.translate(rp.x, rp.y); ctx.rotate(rp.angle);
+      const g = ctx.createRadialGradient(0,0,0,0,0,30);
+      g.addColorStop(0, isAlly?"rgba(60,140,255,0.2)":"rgba(255,60,60,0.2)");
+      g.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,30,0,Math.PI*2); ctx.fill();
+      drawMarineSoldier(24, rp.walkTime||0, rp.isMoving||false, { dark:pc.body, mid:pc.light, light:pc.light, red:pc.visor }, false, false, 0);
+      // 팀 링 + 인간 플레이어 표시 (별표)
+      ctx.strokeStyle = isAlly?"rgba(80,200,255,0.85)":"rgba(255,80,80,0.85)";
+      ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0,0,27,0,Math.PI*2); ctx.stroke();
+      ctx.restore();
+      const hpF = Math.max(0, rp.hp / rp.maxHp), bw = 44, ly = rp.y-34;
+      ctx.save();
+      ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(rp.x-bw/2,ly,bw,5);
+      ctx.fillStyle=isAlly?"#44ffcc":"#ff4444"; ctx.fillRect(rp.x-bw/2,ly,bw*hpF,5);
+      ctx.strokeStyle=isAlly?"#88ffee":"#ff9999"; ctx.lineWidth=0.8; ctx.strokeRect(rp.x-bw/2,ly,bw,5);
+      ctx.fillStyle=isAlly?"#aaeeff":"#ffcccc"; ctx.font="bold 8px monospace"; ctx.textAlign="center";
+      ctx.fillText("★" + ch.name, rp.x, ly-3);
+      ctx.restore();
+    }
+
+    function drawOnlineLobby() {
+      // 배경
+      ctx.fillStyle = "#050a14"; ctx.fillRect(0,0,width,height);
+      const now = performance.now()*0.001;
+      // 별
+      ctx.fillStyle = "rgba(200,220,255,0.5)";
+      for (let i=0;i<60;i++) {
+        const sx=(Math.sin(i*97.3)*0.5+0.5)*width, sy=(Math.cos(i*57.1)*0.5+0.5)*height;
+        const r=0.7+(Math.sin(now+i)*0.4+0.4)*0.9;
+        ctx.beginPath(); ctx.arc(sx,sy,r,0,Math.PI*2); ctx.fill();
+      }
+      ctx.fillStyle="rgba(40,200,255,0.08)"; ctx.fillRect(0,0,width,height);
+
+      // 제목
+      ctx.fillStyle="#00ccff"; ctx.font=`bold ${Math.min(26,width*0.04)}px monospace`;
+      ctx.textAlign="center"; ctx.fillText("ONLINE BATTLE LOBBY", width/2, height*0.12);
+      ctx.fillStyle="rgba(0,180,255,0.4)"; ctx.font=`${Math.min(11,width*0.018)}px monospace`;
+      ctx.fillText("팀당 최대 4명 접속 가능 (AI가 빈 자리 채움)", width/2, height*0.18);
+
+      if (!mp.role) {
+        // HOST/JOIN 선택
+        const bw=Math.min(160,width*0.28), bh=50, gap=Math.min(24,width*0.04);
+        const hRect={x:width/2-bw-gap/2, y:height*0.35-bh/2, w:bw, h:bh};
+        const jRect={x:width/2+gap/2,    y:height*0.35-bh/2, w:bw, h:bh};
+        const backRect={x:width/2-70, y:height*0.85, w:140, h:40};
+        drawLobbyBtn(hRect,"HOST","#0a2a14","#44ff88");
+        drawLobbyBtn(jRect,"JOIN","#0a1a3a","#4488ff");
+        drawLobbyBtn(backRect,"← 메뉴로","#1a1a1a","#888888");
+
+      } else if (mp.role === "tbhost") {
+        // 코드 표시
+        ctx.fillStyle="#44ff88"; ctx.font=`bold ${Math.min(20,width*0.032)}px monospace`;
+        ctx.textAlign="center";
+        ctx.fillText("접속 코드 (상대방에게 알려주세요)", width/2, height*0.27);
+        ctx.fillStyle="#ffffff"; ctx.font=`bold ${Math.min(52,width*0.08)}px monospace`;
+        ctx.fillText(mp.roomCode || "----", width/2, height*0.38);
+        ctx.fillStyle="rgba(255,255,255,0.5)"; ctx.font=`${Math.min(11,width*0.018)}px monospace`;
+        const dots=".".repeat(Math.floor(now*2)%4);
+        ctx.fillText("플레이어 대기 중" + dots + "  " + (mp.conns.length) + "/7 연결됨", width/2, height*0.44);
+        drawTBLobbyPlayerList();
+        drawTBLobbyCharTeamSelect();
+        // START 버튼 (HOST만)
+        const startRect={x:width/2-90, y:height*0.87, w:180, h:44};
+        const canStart=(tbLobbyMyTeam >= 0);
+        drawLobbyBtn(startRect, canStart?"▶ START":"팀 선택 후 시작", canStart?"#1a3a08":"#1a1a1a", canStart?"#88ff44":"#666666");
+        const backRect={x:20, y:20, w:100, h:34};
+        drawLobbyBtn(backRect,"← 메뉴로","#1a1a1a","#888888");
+
+      } else if (mp.role === "tbclient") {
+        ctx.fillStyle = mp.connected ? "#4488ff" : "#ff8844";
+        ctx.font=`bold ${Math.min(18,width*0.028)}px monospace`; ctx.textAlign="center";
+        ctx.fillText(mp.status || "연결 중...", width/2, height*0.27);
+        if (mp.connected) {
+          drawTBLobbyPlayerList();
+          drawTBLobbyCharTeamSelect();
+          if (tbLobbyMyTeam >= 0) {
+            ctx.fillStyle="rgba(100,255,100,0.7)"; ctx.font=`${Math.min(12,width*0.019)}px monospace`;
+            ctx.fillText("호스트가 시작하면 게임이 시작됩니다", width/2, height*0.87);
+          }
+        }
+        // 코드 입력 (연결 전)
+        if (!mp.connected) {
+          const padStartY=height*0.38;
+          const bsz=Math.min(54,width*0.09), gap=Math.min(12,width*0.02);
+          const nums=["1","2","3","4","5","6","7","8","9","←","0","OK"];
+          nums.forEach((n,i)=>{
+            const col=i%3, row=Math.floor(i/3);
+            const bx=width/2-bsz*1.5-gap+(col*(bsz+gap));
+            const by=padStartY+row*(bsz+gap);
+            ctx.fillStyle=n==="OK"?"#1a3a2a":(n==="←"?"#2a1a1a":"#1a2a3a");
+            ctx.fillRect(bx,by,bsz,bsz);
+            ctx.strokeStyle=n==="OK"?"#44ff88":(n==="←"?"#ff6644":"#4488ff");
+            ctx.lineWidth=1.5; ctx.strokeRect(bx,by,bsz,bsz);
+            ctx.fillStyle=n==="OK"?"#88ff44":"#ccddff"; ctx.font=`bold ${Math.min(20,width*0.032)}px monospace`;
+            ctx.textAlign="center"; ctx.fillText(n,bx+bsz/2,by+bsz*0.66);
+          });
+          ctx.fillStyle="#ffffff"; ctx.font=`bold ${Math.min(36,width*0.055)}px monospace`;
+          ctx.textAlign="center"; ctx.fillText(mp.codeInput || "----", width/2, padStartY-20);
+          ctx.fillStyle="rgba(180,200,255,0.5)"; ctx.font=`${Math.min(11,width*0.018)}px monospace`;
+          ctx.fillText("4자리 코드를 입력하세요", width/2, padStartY-40);
+        }
+        const backRect={x:20, y:20, w:100, h:34};
+        drawLobbyBtn(backRect,"← 메뉴로","#1a1a1a","#888888");
+      }
+      ctx.textAlign="left";
+    }
+
+    function drawTBLobbyPlayerList() {
+      // 참가 플레이어 목록
+      const all = [{ id:0, charIdx:tbLobbyMyChar, team:tbLobbyMyTeam }, ...tbLobbyPlayers];
+      const startY = height * (mp.role==="tbhost"?0.49:0.35);
+      ctx.font=`bold ${Math.min(11,width*0.018)}px monospace`; ctx.textAlign="left";
+      ctx.fillStyle="rgba(180,210,255,0.6)"; ctx.fillText("참가자 (" + all.length + "/8):", width/2-140, startY);
+      all.forEach((p,i) => {
+        const ch = CHAR_DEFS[p.charIdx||0];
+        const tx = width/2-140, ty = startY + 18 + i*18;
+        const tColor = p.team===0?"#6699ff":(p.team===1?"#ff6666":"#888888");
+        ctx.fillStyle=tColor;
+        const team = p.team===0?"[BLUE]":(p.team===1?"[RED]":"[미정]");
+        const isMe = (p.id === 0 && mp.role==="tbhost") || (p.id === myNetId && mp.role==="tbclient");
+        ctx.fillText(`${team} ${ch.name} ${isMe?"★(나)":""}`, tx, ty);
+      });
+    }
+
+    function drawTBLobbyCharTeamSelect() {
+      // 캐릭터 + 팀 선택 (간략 버전)
+      const baseY = height * (mp.role==="tbhost"?0.62:0.49);
+      ctx.fillStyle="rgba(200,220,255,0.7)"; ctx.font=`bold ${Math.min(11,width*0.018)}px monospace`;
+      ctx.textAlign="center"; ctx.fillText("내 캐릭터 & 팀 선택:", width/2, baseY);
+      const cw=Math.min(90,width*0.15), ch2=Math.min(46,height*0.075), gap=8;
+      const totalW=(cw+gap)*4-gap;
+      CHAR_DEFS.forEach((cd,i)=>{
+        const cx2=width/2-totalW/2+i*(cw+gap)+cw/2;
+        const cy2=baseY+14;
+        const sel=(i===tbLobbyMyChar);
+        ctx.fillStyle=sel?"rgba(60,120,255,0.4)":"rgba(20,40,80,0.6)";
+        ctx.fillRect(cx2-cw/2,cy2,cw,ch2);
+        ctx.strokeStyle=sel?"#66aaff":"#334466"; ctx.lineWidth=sel?2:1;
+        ctx.strokeRect(cx2-cw/2,cy2,cw,ch2);
+        ctx.fillStyle=sel?"#ffffff":"#8899aa"; ctx.font=`bold ${Math.min(10,width*0.016)}px monospace`;
+        ctx.textAlign="center";
+        ctx.fillText(cd.name, cx2, cy2+18);
+        ctx.fillStyle=sel?"#aaddff":"#556677"; ctx.font=`${Math.min(8,width*0.013)}px monospace`;
+        ctx.fillText(`HP:${cd.tbHp}`, cx2, cy2+32);
+      });
+      // 팀 선택 버튼
+      const ty2=baseY+ch2+28;
+      const bw=Math.min(120,width*0.2), bh=38, tgap=16;
+      const blueRect={x:width/2-bw-tgap/2,y:ty2,w:bw,h:bh};
+      const redRect ={x:width/2+tgap/2,   y:ty2,w:bw,h:bh};
+      ctx.fillStyle=tbLobbyMyTeam===0?"rgba(40,80,255,0.5)":"rgba(20,40,100,0.4)";
+      ctx.fillRect(blueRect.x,blueRect.y,blueRect.w,blueRect.h);
+      ctx.strokeStyle=tbLobbyMyTeam===0?"#4488ff":"#223366"; ctx.lineWidth=tbLobbyMyTeam===0?2.5:1;
+      ctx.strokeRect(blueRect.x,blueRect.y,blueRect.w,blueRect.h);
+      ctx.fillStyle=tbLobbyMyTeam===0?"#88ccff":"#4466aa"; ctx.font=`bold ${Math.min(13,width*0.02)}px monospace`;
+      ctx.textAlign="center"; ctx.fillText("BLUE", blueRect.x+blueRect.w/2, blueRect.y+25);
+
+      ctx.fillStyle=tbLobbyMyTeam===1?"rgba(255,40,40,0.5)":"rgba(100,20,20,0.4)";
+      ctx.fillRect(redRect.x,redRect.y,redRect.w,redRect.h);
+      ctx.strokeStyle=tbLobbyMyTeam===1?"#ff4444":"#662233"; ctx.lineWidth=tbLobbyMyTeam===1?2.5:1;
+      ctx.strokeRect(redRect.x,redRect.y,redRect.w,redRect.h);
+      ctx.fillStyle=tbLobbyMyTeam===1?"#ffaaaa":"#aa4466"; ctx.font=`bold ${Math.min(13,width*0.02)}px monospace`;
+      ctx.textAlign="center"; ctx.fillText("RED", redRect.x+redRect.w/2, redRect.y+25);
+    }
+
+    function handleOnlineLobbyClick(x, y) {
+      // 메뉴로 돌아가기
+      if (x>=20 && x<=120 && y>=20 && y<=54) { resetTBOnline(); state="menu"; return; }
+
+      if (!mp.role) {
+        const bw=Math.min(160,width*0.28), bh=50, gap=Math.min(24,width*0.04);
+        const hRect={x:width/2-bw-gap/2, y:height*0.35-bh/2, w:bw, h:bh};
+        const jRect={x:width/2+gap/2,    y:height*0.35-bh/2, w:bw, h:bh};
+        const backRect={x:width/2-70, y:height*0.85, w:140, h:40};
+        if (inRect(x,y,hRect)) { initTBHost(); return; }
+        if (inRect(x,y,jRect)) { mp.role="tbclient_wait"; return; }
+        if (inRect(x,y,backRect)) { resetTBOnline(); state="menu"; return; }
+
+      } else if (mp.role === "tbhost") {
+        // START 버튼
+        const startRect={x:width/2-90, y:height*0.87, w:180, h:44};
+        if (inRect(x,y,startRect) && tbLobbyMyTeam >= 0) { startTBOnlineGame(); return; }
+        // 캐릭터 선택
+        const cw=Math.min(90,width*0.15), ch2=Math.min(46,height*0.075), gap=8;
+        const totalW=(cw+gap)*4-gap;
+        const baseY=height*0.62;
+        CHAR_DEFS.forEach((cd,i)=>{
+          const cx2=width/2-totalW/2+i*(cw+gap);
+          if (x>=cx2&&x<=cx2+cw&&y>=baseY+14&&y<=baseY+14+ch2) {
+            tbLobbyMyChar=i; broadcastTBLobby();
+          }
+        });
+        // 팀 선택
+        const ty2=baseY+ch2+28, bw=Math.min(120,width*0.2), bh=38, tgap=16;
+        if (x>=width/2-bw-tgap/2&&x<=width/2-tgap/2&&y>=ty2&&y<=ty2+bh) {
+          tbLobbyMyTeam=0; broadcastTBLobby();
+        }
+        if (x>=width/2+tgap/2&&x<=width/2+tgap/2+bw&&y>=ty2&&y<=ty2+bh) {
+          tbLobbyMyTeam=1; broadcastTBLobby();
+        }
+
+      } else if (mp.role === "tbclient_wait") {
+        // 코드 입력 패드
+        if (!mp.connected) {
+          const padStartY=height*0.38;
+          const bsz=Math.min(54,width*0.09), gap=Math.min(12,width*0.02);
+          const nums=["1","2","3","4","5","6","7","8","9","←","0","OK"];
+          nums.forEach((n,i)=>{
+            const col=i%3, row=Math.floor(i/3);
+            const bx=width/2-bsz*1.5-gap+(col*(bsz+gap)), by=padStartY+row*(bsz+gap);
+            if (x>=bx&&x<=bx+bsz&&y>=by&&y<=by+bsz) {
+              if (n==="←") { mp.codeInput=mp.codeInput.slice(0,-1); }
+              else if (n==="OK"&&mp.codeInput.length===4) { joinTBRoom(mp.codeInput); }
+              else if (n!=="OK"&&mp.codeInput.length<4) { mp.codeInput+=n; }
+            }
+          });
+        }
+
+      } else if (mp.role === "tbclient") {
+        // 캐릭터/팀 선택
+        const cw=Math.min(90,width*0.15), ch2=Math.min(46,height*0.075), gap=8;
+        const totalW=(cw+gap)*4-gap;
+        const baseY=height*0.49;
+        CHAR_DEFS.forEach((cd,i)=>{
+          const cx2=width/2-totalW/2+i*(cw+gap);
+          if (x>=cx2&&x<=cx2+cw&&y>=baseY+14&&y<=baseY+14+ch2) {
+            tbLobbyMyChar=i; sendMyTBPick();
+          }
+        });
+        const ty2=baseY+ch2+28, bw=Math.min(120,width*0.2), bh=38, tgap=16;
+        if (x>=width/2-bw-tgap/2&&x<=width/2-tgap/2&&y>=ty2&&y<=ty2+bh) {
+          tbLobbyMyTeam=0; sendMyTBPick();
+        }
+        if (x>=width/2+tgap/2&&x<=width/2+tgap/2+bw&&y>=ty2&&y<=ty2+bh) {
+          tbLobbyMyTeam=1; sendMyTBPick();
+        }
+      }
+    }
+
+    function distToSegment(px,py,ax,ay,bx,by){
+      const dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy;
+      if(l2===0) return Math.hypot(px-ax,py-ay);
+      const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/l2));
+      return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+    }
+
+    // ==================== END ONLINE TEAM BATTLE ====================
+
     function menuTeamBattleButton() {
-      return { x: width / 2 - 86, y: Math.min(height - 168, height * 0.57), w: 172, h: 42 };
+      return { x: width / 2 - 86, y: Math.min(height - 120, height * 0.66), w: 172, h: 42 };
     }
 
     function lobbyButtonRects() {
