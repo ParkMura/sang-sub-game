@@ -6716,7 +6716,8 @@
         x: 5.29622 + (4.38928 - 5.29622) * flickerPhase,
         y: 0.776039 + (-5.71774 - 0.776039) * flickerPhase
       };
-      const healthEnergy = (lp.hp || 100) / 100;
+      const maxHp = gameMode === "teambattle" ? playerChar.tbHp : Math.round(100 * playerChar.hpMult);
+      const healthEnergy = Math.min(1.0, (lp.hp || maxHp) / maxHp);
       const mainEnergy = 0.98 * healthEnergy;
       const fillEnergy = 0.38 * healthEnergy;
       const beamCenter = {
