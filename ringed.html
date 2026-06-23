@@ -7133,6 +7133,8 @@
           mobileControls.dodge = true;
         } else if (action === "swap") {
           mobileControls.swap = true;
+        } else if (handleSkillButtonClick(p.x, p.y)) {
+          return;
         } else if (handleGameMenuButtonClick(p.x, p.y)) {
           return;
         } else if (handleSpecialForcesToggleClick(p.x, p.y)) {
