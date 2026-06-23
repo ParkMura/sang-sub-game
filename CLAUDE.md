@@ -114,7 +114,18 @@ ParkMura/sang-sub-game 저장소의 CLAUDE.md 읽고 게임 작업 이어서 해
 | 82 | 파괴 가능 상자 | `crates[]` 12개 대칭 배치, HP 200, 파괴시 힐 픽업 드롭 |
 | 83 | 팀 배틀 HUD | 상단 BLUE/RED 기지 HP바, AI 생존수 표시, 승/패 오버레이 |
 | 84 | 팀 배틀 승패 | 기지 HP 0 → VICTORY/DEFEAT 화면, 탭으로 메뉴 복귀 |
-| 85 | HP 리밸런싱 | 팀배틀 기준 1000×hpMult — BULL 1000, HAWK 750, VIPER 500, MEDIC 600 |
+| 85 | HP 리밸런싱 | CHAR_DEFS에 `tbHp` 추가 — BULL 1000, HAWK 750, VIPER 500, MEDIC 600; 클래식 hpMult 복원 |
+| 86 | AI 캐릭터 외형 | `drawAiPlayer()` → `drawMarineSoldier()` 사용, 캐릭터 고유 색상, 팀 색 링 |
+| 87 | AI 팀 구성 | `setupAiPlayers()` — 플레이어 캐릭터 제외 3종(BULL/VIPER/MEDIC 등) AI 배정, walkTime 추가 |
+| 88 | 승패 조건 추가 | `checkTeamBattleWin()` — 기지 파괴 OR 적팀 전원 사망 시 승리, 내팀 전멸 시 패배 |
+| 89 | 팀배틀 맵 개선 | `buildTeamBattleMap()` — props 초기화, 기지벽 3중 도어, 중앙 십자, L형 엄폐, 통로 기둥 |
+| 90 | ONLINE BATTLE 버튼 | 메뉴에 ONLINE BATTLE 버튼 추가 (ONLINE>TEAM BATTLE>CO-OP>MAP TOOL 순서) |
+| 91 | 온라인 로비 | `onlinelobby` 상태 — HOST/JOIN 선택, 4자리 코드, 캐릭터/팀 선택, 플레이어 목록 |
+| 92 | 온라인 호스트 | `initTBHost()` — PeerJS로 최대 7 클라이언트 관리, 로비 브로드캐스트, 게임 시작 |
+| 93 | 온라인 클라이언트 | `joinTBRoom(code)` — 코드 입력 → 연결 → 캐릭터/팀 전송 → tbstart 대기 |
+| 94 | 온라인 게임 동기화 | 50ms마다 tbstate(AI/시설/상자/픽업) 브로드캐스트; 클라이언트 tbinput 전송 |
+| 95 | AI 자동 채움 | `setupAiPlayersOnline()` — 팀별 인간 수 파악 후 4명 채울 AI 자동 배정 |
+| 96 | 인간 플레이어 렌더링 | `drawRemoteNetPlayer()` — ★ 표시 + 팀 링, 캐릭터 외형 동일 적용 |
 
 ## 미구현 (요청됨)
 - 브롤스타즈식 사선 시야
