@@ -8839,23 +8839,26 @@
       aiPlayers.length = 0;
       const eteam = 1 - playerTeam;
       const rx = world.w - 420;
-      // 플레이어 스폰과 동일한 중앙 도어 기준
       const aiSpawnY = Math.round(42 + world.h * 0.63);
-      // 오프라인 1인 플레이: 실제 플레이어 1명 → 상대팀 AI 1명만 (숫자 맞추기)
-      const enemyChars = [0, 1, 2, 3].filter(i => i !== playerChar.id);
-      const ciOrder = [1, 0, 2, 3]; // BULL → HAWK → VIPER → MEDIC 우선
-      const ci = ciOrder.find(i => enemyChars.includes(i)) ?? enemyChars[0];
+      // 4개 캐릭터 중 완전 랜덤 선택
+      const ci = Math.floor(Math.random() * 4);
       const ch = CHAR_DEFS[ci];
       aiPlayers.push({
         team: eteam, charIdx: ci, x: rx, y: aiSpawnY,
         hp: ch.tbHp, maxHp: ch.tbHp,
         angle: Math.PI, speed: 170 * ch.speedMult,
-        shootCd: 0.8 + Math.random() * 0.8,
+        shootCd: 1.0 + Math.random() * 0.5,
         walkTime: 0, isMoving: false,
         alive: true, col: ch.col, build: ch.build, name: ch.name,
         r: 16, collisionR: 16,
         strafeDir: 1, strafeTimer: 0,
         stuckTimer: 0, lastX: rx, lastY: aiSpawnY,
+        aiWeapon: 'rifle', aiBombCd: 2.0 + Math.random(),
+        aiBurstLeft: 0, aiBurstPause: 0,
+        aiReactCd: 0.4 + Math.random() * 0.3,
+        aiHurtTimer: 0, aiLastHp: ch.tbHp,
+        aiPeekDir: (Math.random() < 0.5 ? 1 : -1), aiPeekTimer: 0,
+        aiLastTargetId: null,
       });
     }
 
@@ -8885,60 +8888,90 @@
       for (const ai of aiPlayers) {
         if (!ai.alive) continue;
 
-        // MEDIC 스턴 오라 적용 시 멈춤
+        // 스턴
         if (ai.stunTimer > 0) { ai.stunTimer -= dt; ai.isMoving = false; continue; }
+
+        // 피격 감지 (최근에 맞았으면 패닉 이동)
+        const hpDrop = (ai.aiLastHp || ai.maxHp) - ai.hp;
+        if (hpDrop > 8) {
+          ai.aiHurtTimer = 1.0 + Math.random() * 0.4;
+          ai.aiPeekDir = -ai.aiPeekDir; // 피격 방향 반대로 전환
+        }
+        ai.aiLastHp = ai.hp;
+        if (ai.aiHurtTimer > 0) ai.aiHurtTimer -= dt;
 
         // ── 타겟 선정: 적 플레이어 > 적 AI > 적 기지 ──
         let target = null, bestDist = Infinity;
+        let targetId = null;
         if (ai.team !== playerTeam && player.hp > 0) {
           const d = Math.hypot(player.x - ai.x, player.y - ai.y);
-          if (d < bestDist) { bestDist = d; target = { x: player.x, y: player.y, isPlayer: true }; }
+          if (d < bestDist) { bestDist = d; target = { x: player.x, y: player.y, isPlayer: true }; targetId = 'player'; }
         }
-        for (const o of aiPlayers) {
+        for (let oi = 0; oi < aiPlayers.length; oi++) {
+          const o = aiPlayers[oi];
           if (!o.alive || o.team === ai.team) continue;
           const d = Math.hypot(o.x - ai.x, o.y - ai.y);
-          if (d < bestDist) { bestDist = d; target = o; }
+          if (d < bestDist) { bestDist = d; target = o; targetId = 'ai' + oi; }
         }
         if (!target) {
-          for (const fac of facilities) {
+          for (let fi = 0; fi < facilities.length; fi++) {
+            const fac = facilities[fi];
             if (fac.team === ai.team || fac.hp <= 0) continue;
             const d = Math.hypot(fac.x+fac.w/2-ai.x, fac.y+fac.h/2-ai.y);
-            if (d < bestDist) { bestDist = d; target = { x:fac.x+fac.w/2, y:fac.y+fac.h/2, isFacility:true, fac }; }
+            if (d < bestDist) { bestDist = d; target = { x:fac.x+fac.w/2, y:fac.y+fac.h/2, isFacility:true, fac }; targetId = 'fac' + fi; }
           }
         }
         if (!target) continue;
 
-        // ── 캐릭터별 전투 파라미터 ──
-        let preferDist, shootRange, fireCd, dmg, hitChance, retreatFrac, spdMult;
+        // 타겟 바뀌면 반응시간 리셋 (인간처럼 잠깐 망설임)
+        if (ai.aiLastTargetId !== targetId) {
+          ai.aiLastTargetId = targetId;
+          ai.aiReactCd = 0.12 + Math.random() * 0.30;
+        }
+        if (ai.aiReactCd > 0) ai.aiReactCd -= dt;
+
+        // ── 캐릭터별 기본 파라미터 ──
+        let preferDist, rifleRange, fireCd, rifleDmg, hitChance, retreatFrac, spdMult;
         switch (ai.charIdx) {
-          case 0: // HAWK — 빠른 연사 돌격수
-            preferDist=210; shootRange=720; fireCd=0.36; dmg=20; hitChance=0.84; retreatFrac=0.18; spdMult=1.05; break;
-          case 1: // BULL — 중장갑 근접 탱커 (돌진, 강타)
-            preferDist=140; shootRange=480; fireCd=0.62; dmg=42; hitChance=0.80; retreatFrac=0.10; spdMult=0.88; break;
-          case 2: // VIPER — 정밀 저격수 (원거리 유지, 초정밀)
-            preferDist=680; shootRange=1100; fireCd=0.95; dmg=65; hitChance=0.94; retreatFrac=0.25; spdMult=0.90; break;
-          case 3: // MEDIC — 중거리 지원 (자가치유)
-            preferDist=300; shootRange=660; fireCd=0.50; dmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=0.95; break;
-          default:
-            preferDist=250; shootRange=680; fireCd=0.55; dmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=1.0;
+          case 0: preferDist=200; rifleRange=720;  fireCd=0.34; rifleDmg=20; hitChance=0.82; retreatFrac=0.18; spdMult=1.08; break; // HAWK
+          case 1: preferDist=130; rifleRange=460;  fireCd=0.60; rifleDmg=42; hitChance=0.80; retreatFrac=0.10; spdMult=0.90; break; // BULL
+          case 2: preferDist=650; rifleRange=1100; fireCd=0.92; rifleDmg=65; hitChance=0.93; retreatFrac=0.25; spdMult=0.90; break; // VIPER
+          case 3: preferDist=280; rifleRange=640;  fireCd=0.48; rifleDmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=0.97; break; // MEDIC
+          default:preferDist=240; rifleRange=660;  fireCd=0.52; rifleDmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=1.0;
         }
         if (target.isFacility) preferDist = 160;
 
         const hpFrac = ai.hp / ai.maxHp;
 
-        // MEDIC 패시브: 정지 시 자가치유 (5%/초)
+        // MEDIC 패시브: 정지 시 자가치유
         if (ai.charIdx === 3 && hpFrac < 0.95 && !ai.isMoving) {
           ai.hp = Math.min(ai.maxHp, ai.hp + ai.maxHp * 0.05 * dt);
         }
 
-        // ── AI 상태 머신: hunt → retreat → hunt ──
+        // ── 상태 머신 ──
         if (!ai.aiState) ai.aiState = "hunt";
-        if (hpFrac < retreatFrac)               ai.aiState = "retreat";
-        else if (hpFrac > retreatFrac * 2.8)    ai.aiState = "hunt";
+        if (hpFrac < retreatFrac)            ai.aiState = "retreat";
+        else if (hpFrac > retreatFrac * 2.8) ai.aiState = "hunt";
 
         const tdx = target.x - ai.x, tdy = target.y - ai.y;
         const td = Math.hypot(tdx, tdy) || 1;
         ai.angle = Math.atan2(tdy, tdx);
+
+        // ── 시야선 확인 ──
+        const losToTarget = hasLOS(ai.x, ai.y, target.x, target.y);
+
+        // ── 무기 선택: 거리·시야선 기반 동적 전환 ──
+        ai.aiBombCd = (ai.aiBombCd || 0) - dt;
+        if (!target.isFacility && !losToTarget && td < 400 && ai.aiBombCd <= 0) {
+          // 벽 뒤에 있는 적 → 수류탄
+          ai.aiWeapon = 'bomb';
+        } else if (losToTarget && td < 230 && ai.charIdx !== 2) {
+          // 근거리(VIPER 제외) → 권총(빠른 연사)
+          ai.aiWeapon = 'pistol';
+        } else {
+          // 기본 → 소총
+          ai.aiWeapon = 'rifle';
+        }
 
         // ── 이동 ──
         if (!ai.stk) ai.stk = { x:ai.x, y:ai.y, t:0, esc:0, escA:0, idx:0 };
@@ -8946,21 +8979,34 @@
         const bx2 = ai.x, by2 = ai.y;
 
         if (ai.stk.esc > 0) {
-          // 막힘 탈출 모드
           ai.stk.esc -= dt;
           moveCircle(ai, Math.cos(ai.stk.escA) * ai.speed * 0.9 * dt,
                          Math.sin(ai.stk.escA) * ai.speed * 0.9 * dt);
           ai.isMoving = true;
         } else if (ai.aiState === "retreat") {
-          // 후퇴: 적 반대 방향 + 측면 회피
-          if (!ai.retSide) ai.retSide = Math.random() < 0.5 ? 1 : -1;
+          if (!ai.retSide) ai.retSide = ai.aiPeekDir;
           const rx2 = -tdx/td, ry2 = -tdy/td;
           const px2 = -tdy/td * ai.retSide, py2 = tdx/td * ai.retSide;
           moveCircle(ai, (rx2*0.55 + px2*0.45) * ai.speed * spdMult * dt,
                          (ry2*0.55 + py2*0.45) * ai.speed * spdMult * dt);
           ai.isMoving = true;
+        } else if (ai.aiHurtTimer > 0.5) {
+          // 피격 직후 패닉 지그재그 이동
+          const pxH = -tdy/td * ai.aiPeekDir, pyH = tdx/td * ai.aiPeekDir;
+          moveCircle(ai, pxH * ai.speed * 1.15 * dt, pyH * ai.speed * 1.15 * dt);
+          ai.isMoving = true;
+        } else if (!losToTarget && td < 550 && ai.aiState === "hunt") {
+          // 시야선 없을 때: 측면으로 피킹하며 LOS 확보
+          ai.aiPeekTimer = (ai.aiPeekTimer || 0) - dt;
+          if (ai.aiPeekTimer <= 0) {
+            ai.aiPeekDir = -ai.aiPeekDir;
+            ai.aiPeekTimer = 1.2 + Math.random() * 1.2;
+          }
+          const pxP = -tdy/td * ai.aiPeekDir, pyP = tdx/td * ai.aiPeekDir;
+          moveCircle(ai, (tdx/td * 0.25 + pxP * 0.75) * ai.speed * spdMult * dt,
+                         (tdy/td * 0.25 + pyP * 0.75) * ai.speed * spdMult * dt);
+          ai.isMoving = true;
         } else if (td > preferDist + 30) {
-          // 전진: 타겟 방향
           moveCircle(ai, tdx/td * ai.speed * spdMult * dt,
                          tdy/td * ai.speed * spdMult * dt);
           ai.isMoving = true;
@@ -8970,30 +9016,27 @@
                          -tdy/td * ai.speed * 0.95 * dt);
           ai.isMoving = true;
         } else {
-          // 스트레이프 (적정거리에서 측면 기동)
+          // 스트레이프 (적정거리 측면 기동)
           if (!ai.strT) ai.strT = 0;
           ai.strT -= dt;
           if (ai.strT <= 0) {
             ai.strafeDir = -(ai.strafeDir || 1);
-            ai.strT = 0.55 + Math.random() * 1.1;
+            ai.strT = 0.45 + Math.random() * 0.9;
           }
-          const sp2 = ai.charIdx === 1 ? 0.85 : 0.60;
+          const sp2 = ai.charIdx === 1 ? 0.85 : 0.62;
           const px3 = -tdy/td, py3 = tdx/td;
           moveCircle(ai, px3 * ai.speed * sp2 * dt * (ai.strafeDir||1),
                          py3 * ai.speed * sp2 * dt * (ai.strafeDir||1));
           ai.isMoving = Math.hypot(ai.x-bx2, ai.y-by2) > 0.5;
         }
 
-        // walkTime 애니메이션
         if (ai.isMoving) ai.walkTime = (ai.walkTime||0) + dt;
 
         // ── Stuck 감지 → 8방향 순차 탈출 ──
         if (ai.stk.t <= 0) {
           const mv = Math.hypot(ai.x-ai.stk.x, ai.y-ai.stk.y);
           if (mv < 6 && td > preferDist * 0.8 && ai.stk.esc <= 0) {
-            // 8방향 중 순환하며 시도 (막히면 다음 방향)
             ai.stk.escA = ai.angle + Math.PI * 0.25 * (ai.stk.idx % 8);
-            // 인접하지 않은 방향도 시도: 뒤쪽 45° 추가 오프셋
             if (ai.stk.idx % 2 === 1) ai.stk.escA += Math.PI;
             ai.stk.idx = (ai.stk.idx + 1) % 8;
             ai.stk.esc = 0.45 + Math.random() * 0.25;
@@ -9002,12 +9045,56 @@
           ai.stk.t = 0.35;
         }
 
-        // ── 사격 (트레이서 포함) ──
-        ai.shootCd = (ai.shootCd||0) - dt;
-        if (ai.shootCd <= 0 && td < shootRange) {
-          ai.shootCd = fireCd * (0.75 + Math.random() * 0.5);
+        // ── 수류탄 투척 (벽 뒤 공격) ──
+        if (ai.aiWeapon === 'bomb') {
+          ai.aiBombCd = 3.0 + Math.random() * 1.5;
+          ai.aiWeapon = 'rifle';
+          bombs.push({
+            x: ai.x, y: ai.y,
+            sx: ai.x, sy: ai.y,
+            tx: clamp(target.x + (Math.random()-0.5)*80, 70, world.w-70),
+            ty: clamp(target.y + (Math.random()-0.5)*80, 70, world.h-70),
+            life: 0.52, maxLife: 0.52, r: 13, hostile: true
+          });
+          burst(ai.x, ai.y, "#ff9933", 4);
+          speechBubbles.push({ x:ai.x, y:ai.y-44, text:"GRENADE!", life:0.8, maxLife:0.8, screen:false });
+          continue;
+        }
 
-          // 플레이어 이동 예측 (직전 위치 대비)
+        // 반응시간 중 사격 불가
+        if (ai.aiReactCd > 0) continue;
+
+        // ── 버스트 사격 ──
+        ai.aiBurstPause = (ai.aiBurstPause || 0) - dt;
+        ai.shootCd = (ai.shootCd || 0) - dt;
+
+        // 무기별 파라미터
+        let wRange, wDmg, wFireCd, wHitChance, wJitterHit, wJitterMiss;
+        if (ai.aiWeapon === 'pistol') {
+          // 권총: 근거리 빠른 연사, 높은 명중률
+          wRange = 270; wDmg = Math.max(14, Math.round(rifleDmg * 0.68));
+          wFireCd = fireCd * 0.50; wHitChance = Math.min(0.94, hitChance + 0.10);
+          wJitterHit = 5; wJitterMiss = 50;
+        } else {
+          // 소총: 기본 무기
+          wRange = rifleRange; wDmg = rifleDmg; wFireCd = fireCd;
+          wHitChance = hitChance; wJitterHit = 14; wJitterMiss = 130;
+        }
+
+        if (ai.shootCd <= 0 && ai.aiBurstPause <= 0 && td < wRange && losToTarget) {
+          // 버스트 카운터 초기화
+          if (!ai.aiBurstLeft || ai.aiBurstLeft <= 0) {
+            ai.aiBurstLeft = (ai.charIdx === 2) ? 1 : (2 + Math.floor(Math.random() * 2)); // VIPER 단발, 나머지 2~3발
+          }
+          ai.aiBurstLeft--;
+          if (ai.aiBurstLeft <= 0) {
+            // 버스트 끝 → 휴식
+            ai.aiBurstPause = 0.50 + Math.random() * 0.60;
+            ai.aiBurstLeft = 0;
+          }
+          ai.shootCd = wFireCd * (0.70 + Math.random() * 0.40);
+
+          // 이동 예측 조준
           let aimX = target.x, aimY = target.y;
           if (target.isPlayer) {
             const prevX = ai._px !== undefined ? ai._px : target.x;
@@ -9015,34 +9102,42 @@
             const predT = Math.min(0.18, td / 900);
             const vx = (target.x - prevX) / Math.max(dt, 0.016);
             const vy = (target.y - prevY) / Math.max(dt, 0.016);
-            aimX = target.x + vx * predT * 0.55;
-            aimY = target.y + vy * predT * 0.55;
+            aimX = target.x + vx * predT * 0.50;
+            aimY = target.y + vy * predT * 0.50;
           }
           ai._px = target.x; ai._py = target.y;
 
-          const hits = Math.random() < hitChance;
-          const jitter = hits ? 18 : (1 - hitChance) * 180;
+          const hits = Math.random() < wHitChance;
+          const jitter = hits ? wJitterHit : wJitterMiss;
           const tx1 = ai.x + Math.cos(ai.angle) * 22;
           const ty1 = ai.y + Math.sin(ai.angle) * 22;
           const tx2 = aimX + (Math.random()-0.5)*jitter;
           const ty2 = aimY + (Math.random()-0.5)*jitter;
 
-          // 시각적 트레이서 (항상 표시)
-          enemyTracers.push({ x1:tx1, y1:ty1, x2:tx2, y2:ty2, life:0.20, maxLife:0.20 });
+          // ── 벽 관통 방지: raycastShot으로 실제 탄착점 결정 ──
+          const ddx = tx2 - tx1, ddy = ty2 - ty1;
+          const dd = Math.hypot(ddx, ddy) || 1;
+          const wallRay = raycastShot(tx1, ty1, ddx/dd, ddy/dd, dd + 10);
+          // solid가 있으면 벽에 막힘 (탄환 차단)
+          const wallBlocked = wallRay.solid !== null;
+
+          // 트레이서: 벽에 막히면 벽까지만, 아니면 목표까지
+          enemyTracers.push({ x1:tx1, y1:ty1, x2:wallRay.x, y2:wallRay.y, life:0.18, maxLife:0.18 });
           burst(tx1, ty1, ai.team===playerTeam ? "#4488ff" : "#ff6633", 2);
 
-          if (hits) {
-            const finalDmg = dmg * (hpFrac < 0.5 ? 0.85 : 1.0);
+          // 벽에 막히지 않았을 때만 데미지
+          if (!wallBlocked && hits) {
+            const finalDmg = wDmg * (hpFrac < 0.5 ? 0.85 : 1.0);
             if (target.isPlayer && player.invuln <= 0) {
               player.hp = Math.max(0, player.hp - finalDmg);
               player.invuln = 0.08;
               shake = Math.max(shake, 5);
               if (player.hp <= 0) { player.hp=0; if(gameMode!=="teambattle") state="dead"; }
             } else if (target.alive !== undefined) {
-              target.hp = Math.max(0, target.hp - dmg);
+              target.hp = Math.max(0, target.hp - wDmg);
               if (target.hp <= 0) { target.hp=0; target.alive=false; }
             } else if (target.isFacility) {
-              target.fac.hp = Math.max(0, target.fac.hp - Math.round(dmg * 0.7));
+              target.fac.hp = Math.max(0, target.fac.hp - Math.round(wDmg * 0.7));
             }
           }
         }
