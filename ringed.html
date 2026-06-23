@@ -301,6 +301,7 @@
         return;
       }
       if (event.code === "Enter" && state === "menu") { charSelectPhase = 0; p1CharIdx = 0; state = "charselect"; }
+      if (event.code === "F9") { playerChar = CHAR_DEFS[1]; currentWeapon = playerChar.primaryW; startGame(); state = "play"; skillEnergy = 1; }
       if (event.code === "Escape" && state === "play") goMainMenu();
       if (event.code === "Digit1") cameraMode = 1;
       if (event.code === "Digit2") cameraMode = 2;
@@ -2324,13 +2325,13 @@
         hm.life -= dt;
         if (hm.life <= 0) { homingMissiles.splice(i, 1); continue; }
 
-        const HOMING_SPD = 16; // 유도 단계 속도 (px/s)
+        const HOMING_SPD = 64; // 유도 단계 속도 (px/s)
 
         if (hm.orbitTime === undefined) hm.orbitTime = 0;
         if (hm.orbitTime > 0) {
           // ── 공전 단계: 플레이어 주변 바람개비 회전 ──
           hm.orbitTime -= dt;
-          hm.orbitAngle += 0.36 * dt; // rad/s 회전 (눈으로 볼 수 있는 속도)
+          hm.orbitAngle += 1.44 * dt; // rad/s 회전
           hm.orbitRadius = Math.min((hm.orbitRadius || 50) + 10 * dt, 120);
           // 중심은 플레이어를 계속 따라감
           hm.x = player.x + Math.cos(hm.orbitAngle) * hm.orbitRadius;
@@ -6964,7 +6965,8 @@
       const base = Math.min(66, Math.max(54, width * 0.12));
       const gap = Math.max(12, base * 0.18);
       const safeRight = 22;
-      const attackR = Math.min(70, Math.max(62, width * 0.126));
+      const attackRBase = Math.min(70, Math.max(62, width * 0.126));
+      const attackR = (playerChar && playerChar.id === 1) ? attackRBase * 0.8 : attackRBase;
       const attackY = height - 112;
       const actionX = width - safeRight - base;
       const weaponNames = { 0:"소총", 1:"산탄총", 2:"마취총", 4:"권총", 5:"저격총", 6:"대구경" };
