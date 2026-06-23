@@ -157,6 +157,7 @@
     let healAuraTimer = 0;
     const c4List = [];
     let c4AimShakeCount = 0, c4AimShakePrev = 0;
+    let skillAimShakeCount = 0, skillAimShakePrev = 0, skillAimShakeTimer = 0;
     const mortarShells = [];
     const homingMissiles = []; // BULL 스킬: 유도 미사일 6발
     let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
@@ -894,6 +895,7 @@
       rageActive = false; rageTimer = 0; ragePrevHp = player.hp;
       healAuraTimer = 0;
       c4List.length = 0; c4AimShakeCount = 0; c4AimShakePrev = 0;
+      skillAimShakeCount = 0; skillAimShakePrev = 0; skillAimShakeTimer = 0;
       mortarShells.length = 0;
       homingMissiles.length = 0;
       missileCharging = false; missileHoldTimer = 0; missileActive = null;
@@ -2164,14 +2166,34 @@
         c4AimShakePrev = aimY;
       }
 
-      // 스킬 발동: E키
+      // 스킬 발동: E키 (PC) / AIM 위아래 3번 (모바일) — 전 캐릭터 통일
       if (keys.has("KeyE") && skillEnergy >= 1 && !skillActive && !missileCharging) {
         activateSkill();
       }
-      if (isMobile && skillEnergy >= 1 && !skillActive && !missileCharging) {
-        const flickDelta = mobileControls.aimDeflection - mobileControls.prevAimDeflection;
-        if (flickDelta > 0.45 && mobileControls.shoot) activateSkill();
-        // 미사일 충전 중 조이스틱 놓으면 발사
+      if (isMobile) {
+        // AIM 위아래 3번 흔들기 → 스킬 발동 (전 캐릭터 통일)
+        const aimDy = mobileControls.aimDeflection > 0.25 ? mobileControls.aimDirY : 0;
+        if (mobileControls.shoot && aimDy !== 0) {
+          if (Math.sign(aimDy) !== Math.sign(skillAimShakePrev) && skillAimShakePrev !== 0) {
+            skillAimShakeCount++;
+            skillAimShakeTimer = 1.8;
+            if (skillAimShakeCount >= 3 && skillEnergy >= 1 && !skillActive && !missileCharging) {
+              activateSkill();
+              skillAimShakeCount = 0;
+              c4AimShakeCount = 0;
+            }
+          }
+          skillAimShakePrev = aimDy;
+        } else if (!mobileControls.shoot) {
+          skillAimShakePrev = 0;
+          skillAimShakeCount = 0;
+          skillAimShakeTimer = 0;
+        }
+        if (skillAimShakeTimer > 0) {
+          skillAimShakeTimer -= dt;
+          if (skillAimShakeTimer <= 0) skillAimShakeCount = 0;
+        }
+        // 미사일 충전 중 조이스틱 놓으면 발사 (VIPER)
         if (missileCharging && !mobileControls.shoot) fireMissile();
       }
       // 미사일 충전 (VIPER)
