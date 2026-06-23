@@ -5511,48 +5511,80 @@
       ctx.save();
       ctx.translate(dr.x, dr.y);
 
-      // 호버링 흔들흔들 (hovering 단계)
+      // 호버링 흔들흔들
       const wobble = dr.phase === "hovering"
         ? Math.sin(now * 9) * 2.5
-        : (dr.phase === "flying" ? 0 : Math.sin(now * 5) * 1.5);
+        : (dr.phase === "flying" ? 0 : Math.sin(now * 5) * 1.2);
       ctx.translate(Math.sin(now * 7) * wobble * 0.4, wobble);
 
-      // 충전 글로우 (hovering 단계 → 점점 밝아짐)
-      if (dr.phase === "hovering") {
-        const chargeRatio = 1 - dr.hoverTimer / 0.5;
-        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 18 + chargeRatio * 16);
-        glow.addColorStop(0, `rgba(0,255,180,${0.7 * chargeRatio})`);
-        glow.addColorStop(1, "rgba(0,255,180,0)");
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
+      const isFiring = (dr.phase === "firing");
+      const isHovering = (dr.phase === "hovering");
+      const chargeRatio = isHovering ? (1 - dr.hoverTimer / 0.5) : (isFiring ? 1 : 0);
+      const pulse = 0.7 + Math.sin(now * 8) * 0.3;
+
+      // ── 외부 큰 글로우 (항상 켜져 있음) ─────────────
+      const outerGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, 36 + chargeRatio * 12);
+      outerGlow.addColorStop(0, `rgba(0,255,180,${0.55 * pulse})`);
+      outerGlow.addColorStop(0.5, `rgba(0,200,120,${0.25 * pulse})`);
+      outerGlow.addColorStop(1, "rgba(0,255,180,0)");
+      ctx.fillStyle = outerGlow;
+      ctx.beginPath(); ctx.arc(0, 0, 48, 0, Math.PI * 2); ctx.fill();
+
+      // ── 좌우 프로펠러 암 (밝은 회색) ────────────────
+      for (const sx of [-18, 18]) {
+        ctx.strokeStyle = "#c8e8d0";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(sx, 0); ctx.stroke();
+        // 프로펠러 회전 원판 (밝은 민트)
+        ctx.strokeStyle = isFiring ? "rgba(0,255,220,0.9)" : "rgba(120,255,200,0.85)";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.ellipse(sx, 0, 10, 3, now * (sx > 0 ? 12 : -12), 0, Math.PI * 2);
+        ctx.stroke();
+        // 프로펠러 원 테두리
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(sx, 0, 10, 0, Math.PI * 2); ctx.stroke();
       }
 
-      // 몸체 (납작 육각형)
-      const isFiring = (dr.phase === "firing");
-      ctx.fillStyle = "#0e2218";
-      ctx.strokeStyle = isFiring ? "#00ffcc" : "#00aa66";
-      ctx.lineWidth = 1.8;
+      // ── 몸체 본판 (밝은 군사 연두/올리브) ──────────
+      ctx.fillStyle = isFiring ? "#40e8a0" : "#5adc9a";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       for (let k = 0; k < 6; k++) {
         const a = (k / 6) * Math.PI * 2;
-        k === 0 ? ctx.moveTo(Math.cos(a) * 13, Math.sin(a) * 8) : ctx.lineTo(Math.cos(a) * 13, Math.sin(a) * 8);
+        k === 0 ? ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 9) : ctx.lineTo(Math.cos(a) * 14, Math.sin(a) * 9);
       }
       ctx.closePath(); ctx.fill(); ctx.stroke();
 
-      // 중앙 렌즈
-      const lens = ctx.createRadialGradient(0, 0, 0, 0, 0, 5);
-      lens.addColorStop(0, "#ffffff");
-      lens.addColorStop(0.4, isFiring ? "#00ffee" : "#00cc88");
-      lens.addColorStop(1, "#002211");
-      ctx.fillStyle = lens;
-      ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+      // 몸체 내부 패널 (어두운 테두리 느낌)
+      ctx.strokeStyle = "rgba(0,80,40,0.6)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        k === 0 ? ctx.moveTo(Math.cos(a) * 10, Math.sin(a) * 6) : ctx.lineTo(Math.cos(a) * 10, Math.sin(a) * 6);
+      }
+      ctx.closePath(); ctx.stroke();
 
-      // 좌우 프로펠러 (회전)
-      for (const sx of [-16, 16]) {
-        ctx.strokeStyle = "rgba(0,255,150,0.65)";
-        ctx.lineWidth = 1.2;
+      // ── 중앙 렌즈 (밝은 흰색+청록) ─────────────────
+      const lens = ctx.createRadialGradient(-1, -1, 0, 0, 0, 6);
+      lens.addColorStop(0, "#ffffff");
+      lens.addColorStop(0.35, isFiring ? "#00ffee" : "#88ffdd");
+      lens.addColorStop(1, "#00aa66");
+      ctx.fillStyle = lens;
+      ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.8)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.stroke();
+
+      // ── 충전 링 (hovering → 점점 밝아짐) ───────────
+      if (chargeRatio > 0) {
+        ctx.strokeStyle = `rgba(0,255,180,${chargeRatio * pulse})`;
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.ellipse(sx, 0, 8, 2.5, now * (sx > 0 ? 10 : -10), 0, Math.PI * 2);
+        ctx.arc(0, 0, 18, -Math.PI / 2, -Math.PI / 2 + chargeRatio * Math.PI * 2);
         ctx.stroke();
       }
 
