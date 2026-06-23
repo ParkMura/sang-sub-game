@@ -1437,12 +1437,16 @@
           else if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 3); hitWallCorner(hit.x, hit.y, 1.0, 40); }
           splashHits.push({ x: hit.x, y: hit.y });
         }
-        // 피해 반경 스플래시 (벽 충격 지점에서만)
+        // 피해 반경 스플래시 (벽 사이에 없는 적만)
         const splashR = 55;
         const splashedEnemies = new Set();
         for (const sh of splashHits) {
           for (const e of enemies) {
             if (!splashedEnemies.has(e) && Math.hypot(e.x - sh.x, e.y - sh.y) < splashR + e.r) {
+              const sDx = e.x - sh.x, sDy = e.y - sh.y;
+              const sDist = Math.hypot(sDx, sDy) || 1;
+              const splashRay = raycastShot(sh.x, sh.y, sDx / sDist, sDy / sDist, sDist);
+              if (splashRay.solid) continue;
               splashedEnemies.add(e);
               e.hp -= 20;
               burst(sh.x, sh.y, "#ff8040", 2);
@@ -1530,33 +1534,24 @@
       sniperAmmo--;
       if (sniperAmmo <= 0) sniperReloadTimer = SNIPER_RELOAD_TIME;
       playSfx("playerGun", 1.3 + Math.random() * 0.05);
-      // 과녁 위치에서 가장 가까운 적 탐색
-      let nearestEnemy = null, nearestDist = Infinity;
-      for (const e of enemies) {
-        const d = Math.hypot(e.x - tx, e.y - ty);
-        if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
-      }
-      const r = nearestEnemy ? (nearestEnemy.r || 22) : 22;
-      let dmg = 0;
-      if (nearestEnemy) {
-        if (nearestDist <= r) dmg = 300;
-        else if (nearestDist <= r * 3) dmg = 180;
-      }
-      // 발사 방향 (플레이어 → 목표)
       const pdx = tx - player.x, pdy = ty - player.y;
       const pd = Math.hypot(pdx, pdy) || 1;
-      const sx = player.x + (pdx / pd) * 34, sy = player.y + (pdy / pd) * 34;
-      tracers.push({ x1: sx, y1: sy, x2: tx, y2: ty, life: 0.25, maxLife: 0.25 });
+      const dirX = pdx / pd, dirY = pdy / pd;
+      const sx = player.x + dirX * 34, sy = player.y + dirY * 34;
+      // raycastShot으로 벽 관통 방지
+      const hit = raycastShot(sx, sy, dirX, dirY, 1960);
+      tracers.push({ x1: sx, y1: sy, x2: hit.x, y2: hit.y, life: 0.25, maxLife: 0.25 });
       flashes.push({ x: sx, y: sy, angle: Math.atan2(pdy, pdx), life: 0.12, maxLife: 0.12 });
       player.angle = Math.atan2(pdy, pdx);
       shake = Math.max(shake, 6); recoilAmt = 1.5;
-      if (dmg > 0 && nearestEnemy) {
-        nearestEnemy.hp -= dmg * (rageActive ? 2 : 1);
-        burst(nearestEnemy.x, nearestEnemy.y, "#ff4000", dmg === 100 ? 14 : 8);
-        skillEnergy = Math.min(1, skillEnergy + (dmg === 100 ? 0.6 : 0.35));
-        const label = dmg === 100 ? "DIRECT HIT!" : "HIT " + dmg;
-        speechBubbles.push({ text: label, life: 1.3, maxLife: 1.3, screen: true });
+      if (hit.enemy) {
+        const dmg = 150 * (rageActive ? 2 : 1);
+        hit.enemy.hp -= dmg;
+        burst(hit.x, hit.y, "#ff4000", 10);
+        skillEnergy = Math.min(1, skillEnergy + 0.5);
+        speechBubbles.push({ text: "HIT!", life: 1.3, maxLife: 1.3, screen: true });
       } else {
+        if (hit.solid) { burst(hit.x, hit.y, "#f4efe8", 6); hitWallCorner(hit.x, hit.y, 0.5, 50); }
         speechBubbles.push({ text: "MISS", life: 0.9, maxLife: 0.9, screen: true });
       }
     }
