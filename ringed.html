@@ -138,16 +138,16 @@
     // ─── 캐릭터 시스템 ────────────────────────────────────────
     const CHAR_DEFS = [
       { id:0, name:"HAWK",  sub:"특수부대원",  gender:"male",   build:"normal",
-        speedMult:1.0,  hpMult:0.75,  primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
+        speedMult:1.0,  hpMult:1.0,  tbHp:750,  primaryW:0, secondaryW:4, bombType:"grenade", skillType:"vulcan",
         col:{ body:"#1a2e7a", light:"#2a40a0", visor:"#e87030", shoulder:"#c89010" } },
       { id:1, name:"BULL",  sub:"중장갑 전사", gender:"male",   build:"heavy",
-        speedMult:0.82, hpMult:1.0,   primaryW:1, secondaryW:4, bombType:"c4",      skillType:"homing_missiles",
+        speedMult:0.82, hpMult:1.35, tbHp:1000, primaryW:1, secondaryW:4, bombType:"c4",      skillType:"homing_missiles",
         col:{ body:"#281808", light:"#4a2a10", visor:"#ff4400", shoulder:"#7a5008" } },
       { id:2, name:"VIPER", sub:"정예 저격수", gender:"male",   build:"slim",
-        speedMult:1.22, hpMult:0.5,   primaryW:5, secondaryW:6, bombType:"grenade", skillType:"drone_laser",
+        speedMult:1.22, hpMult:0.75, tbHp:500,  primaryW:5, secondaryW:6, bombType:"grenade", skillType:"drone_laser",
         col:{ body:"#102818", light:"#1e4020", visor:"#00ff88", shoulder:"#204820" } },
       { id:3, name:"MEDIC", sub:"전투 의무병", gender:"female", build:"slim",
-        speedMult:1.1,  hpMult:0.6,   primaryW:0, secondaryW:4, bombType:"grenade", skillType:"stun_aura",
+        speedMult:1.1,  hpMult:0.8,  tbHp:600,  primaryW:0, secondaryW:4, bombType:"grenade", skillType:"stun_aura",
         col:{ body:"#3a0a2a", light:"#600a40", visor:"#ff88ff", shoulder:"#c04080" } },
     ];
     let p1CharIdx = -1, p2CharIdx = -1;
@@ -867,7 +867,7 @@
     function resetWorld() {
       player.x = 1100;
       player.y = 690;
-      player.hp = Math.round((gameMode === "teambattle" ? 1000 : 100) * playerChar.hpMult);
+      player.hp = gameMode === "teambattle" ? playerChar.tbHp : Math.round(100 * playerChar.hpMult);
       player.stamina = 100;
       player.angle = 0;
       player.targetAngle = 0;
@@ -2788,7 +2788,7 @@
         p.life -= dt;
         p.pulse += dt * 5;
         if (dist2(player.x, player.y, p.x, p.y) < (player.r + p.r) * (player.r + p.r)) {
-          player.hp = Math.min(100, player.hp + 20);
+          { const mhp = gameMode==="teambattle" ? playerChar.tbHp : Math.round(100*playerChar.hpMult); player.hp = Math.min(mhp, player.hp + Math.round(mhp*0.2)); }
           burst(p.x, p.y, "#8edc8f", 10);
           pickups.splice(i, 1);
         } else if (p.life <= 0) {
@@ -7005,7 +7005,7 @@
       ctx.restore();
 
       // HP 바
-      const maxHp = Math.round((gameMode === "teambattle" ? 1000 : 100) * playerChar.hpMult);
+      const maxHp = gameMode === "teambattle" ? playerChar.tbHp : Math.round(100 * playerChar.hpMult);
       const hpRatio = Math.max(0, player.hp / maxHp);
       const hpColor = hpRatio > 0.5 ? "#22e870" : (hpRatio > 0.25 ? "#f0a020" : "#e83020");
       ctx.save();
@@ -8622,7 +8622,7 @@
       buildTeamBattleMap();
       if (playerTeam===0) { player.x=300; player.y=800; player.angle=0; }
       else                { player.x=world.w-300; player.y=800; player.angle=Math.PI; }
-      player.hp = Math.round(1000 * playerChar.hpMult);
+      player.hp = playerChar.tbHp;
       facilities.length=0;
       facilities.push({ x:50,           y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
       facilities.push({ x:world.w-250,  y:600, w:200, h:400, hp:3000, maxHp:3000, team:1 });
@@ -8684,7 +8684,7 @@
       ].forEach(d=>{
         const ch=CHAR_DEFS[d.charIdx];
         aiPlayers.push({ team:d.team, charIdx:d.charIdx, x:d.x, y:d.y,
-          hp:Math.round(1000*ch.hpMult), maxHp:Math.round(1000*ch.hpMult),
+          hp:ch.tbHp, maxHp:ch.tbHp,
           angle:d.team===0?0:Math.PI, speed:180*ch.speedMult,
           shootCd:Math.random()*1.2, alive:true, col:ch.col, build:ch.build, name:ch.name });
       });
