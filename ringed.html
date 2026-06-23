@@ -156,7 +156,7 @@
     let c4AimShakeCount = 0, c4AimShakePrev = 0;
     const mortarShells = [];
     let missileCharging = false, missileHoldTimer = 0, missileAimX = 0, missileAimY = 0;
-    const SNIPER_MAX_AMMO = 1, SNIPER_RELOAD_TIME = 2.5;
+    const SNIPER_MAX_AMMO = 5, SNIPER_RELOAD_TIME = 1.5;
     const PISTOL_MAX_AMMO = 15, PISTOL_RELOAD_TIME = 1.5;
     const HEAVY_PISTOL_MAX_AMMO = 5, HEAVY_PISTOL_RELOAD_TIME = 1.5;
     let sniperAmmo = SNIPER_MAX_AMMO, sniperReloadTimer = 0;
@@ -1419,7 +1419,7 @@
         if (sniperReloadTimer > 0) return;
         if (sniperAmmo <= 0) { sniperReloadTimer = SNIPER_RELOAD_TIME; return; }
         sniperAmmo--;
-        sniperReloadTimer = SNIPER_RELOAD_TIME;
+        if (sniperAmmo <= 0) sniperReloadTimer = SNIPER_RELOAD_TIME;
         shootCooldown = 0.5;
         playSfx("playerGun", 1.3 + Math.random() * 0.05);
         const hitS = raycastShot(sx, sy, dx, dy, 1960);
@@ -1450,12 +1450,10 @@
     }
 
     function fireSniperAt(tx, ty) {
-      if (sniperReloadTimer > 0 || sniperAmmo <= 0) {
-        if (sniperAmmo <= 0) sniperReloadTimer = SNIPER_RELOAD_TIME;
-        return;
-      }
+      if (sniperReloadTimer > 0) return;
+      if (sniperAmmo <= 0) { sniperReloadTimer = SNIPER_RELOAD_TIME; return; }
       sniperAmmo--;
-      sniperReloadTimer = SNIPER_RELOAD_TIME;
+      if (sniperAmmo <= 0) sniperReloadTimer = SNIPER_RELOAD_TIME;
       playSfx("playerGun", 1.3 + Math.random() * 0.05);
       // 과녁 위치에서 가장 가까운 적 탐색
       let nearestEnemy = null, nearestDist = Infinity;
@@ -1466,8 +1464,8 @@
       const r = nearestEnemy ? (nearestEnemy.r || 22) : 22;
       let dmg = 0;
       if (nearestEnemy) {
-        if (nearestDist <= r) dmg = 100;
-        else if (nearestDist <= r * 3) dmg = 60;
+        if (nearestDist <= r) dmg = 150;
+        else if (nearestDist <= r * 3) dmg = 90;
       }
       // 발사 방향 (플레이어 → 목표)
       const pdx = tx - player.x, pdy = ty - player.y;
