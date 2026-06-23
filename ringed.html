@@ -1464,8 +1464,8 @@
       const r = nearestEnemy ? (nearestEnemy.r || 22) : 22;
       let dmg = 0;
       if (nearestEnemy) {
-        if (nearestDist <= r) dmg = 150;
-        else if (nearestDist <= r * 3) dmg = 90;
+        if (nearestDist <= r) dmg = 300;
+        else if (nearestDist <= r * 3) dmg = 180;
       }
       // 발사 방향 (플레이어 → 목표)
       const pdx = tx - player.x, pdy = ty - player.y;
