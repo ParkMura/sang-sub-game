@@ -8700,8 +8700,10 @@
       gameMode = "teambattle";
       resetWorld();
       buildTeamBattleMap();
-      if (playerTeam===0) { player.x=300; player.y=800; player.angle=0; }
-      else                { player.x=world.w-300; player.y=800; player.angle=Math.PI; }
+      // Spawn aligned with middle corridor (center of middle door: t + H*0.50 + H*0.065 ≈ 946 for H=1600)
+      const spawnY = Math.round(42 + world.h * 0.565);
+      if (playerTeam===0) { player.x=300; player.y=spawnY; player.angle=0; }
+      else                { player.x=world.w-300; player.y=spawnY; player.angle=Math.PI; }
       player.hp = playerChar.tbHp;
       facilities.length=0;
       facilities.push({ x:50,           y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
@@ -8775,15 +8777,15 @@
       aiPlayers.length = 0;
       const eteam = 1 - playerTeam;
       const rx = world.w - 380;
+      // Spawn aligned with middle corridor (same as player spawn)
+      const aiSpawnY = Math.round(42 + world.h * 0.565);
       // 오프라인 1인 플레이: 실제 플레이어 1명 → 상대팀 AI 1명만 (숫자 맞추기)
-      // 상대팀 AI는 플레이어와 다른 캐릭터 중 첫번째 선택
       const enemyChars = [0, 1, 2, 3].filter(i => i !== playerChar.id);
-      // 캐릭터별 다양성을 위해 전투스타일이 다른 적 선택
       const ciOrder = [1, 0, 2, 3]; // BULL → HAWK → VIPER → MEDIC 우선
       const ci = ciOrder.find(i => enemyChars.includes(i)) ?? enemyChars[0];
       const ch = CHAR_DEFS[ci];
       aiPlayers.push({
-        team: eteam, charIdx: ci, x: rx, y: world.h / 2,
+        team: eteam, charIdx: ci, x: rx, y: aiSpawnY,
         hp: ch.tbHp, maxHp: ch.tbHp,
         angle: Math.PI, speed: 170 * ch.speedMult,
         shootCd: 0.8 + Math.random() * 0.8,
@@ -8791,7 +8793,7 @@
         alive: true, col: ch.col, build: ch.build, name: ch.name,
         r: 16, collisionR: 16,
         strafeDir: 1, strafeTimer: 0,
-        stuckTimer: 0, lastX: rx, lastY: world.h / 2,
+        stuckTimer: 0, lastX: rx, lastY: aiSpawnY,
       });
     }
 
