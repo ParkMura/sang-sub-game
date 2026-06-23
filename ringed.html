@@ -237,7 +237,7 @@
     };
     const sfx = {};
 
-    const world = { w: 2200, h: 1600 };
+    const world = { w: 3300, h: 2400 };
     const camera = { x: 0, y: 0, zoom: 1 };
     const camera2 = { x: 0, y: 0, zoom: 0.81 };
     let splitPanelOffsetX = 0;
@@ -8700,14 +8700,15 @@
       gameMode = "teambattle";
       resetWorld();
       buildTeamBattleMap();
-      // Spawn aligned with middle corridor (center of middle door: t + H*0.50 + H*0.065 ≈ 946 for H=1600)
-      const spawnY = Math.round(42 + world.h * 0.565);
-      if (playerTeam===0) { player.x=300; player.y=spawnY; player.angle=0; }
-      else                { player.x=world.w-300; player.y=spawnY; player.angle=Math.PI; }
+      // 스폰: 하단 중앙 도어(Door 3) 중심 y = 42 + H*0.58 + H*0.05 = 42 + H*0.63
+      const spawnY = Math.round(42 + world.h * 0.63);
+      if (playerTeam===0) { player.x=420; player.y=spawnY; player.angle=0; }
+      else                { player.x=world.w-420; player.y=spawnY; player.angle=Math.PI; }
       player.hp = playerChar.tbHp;
+      // 기지 시설: 새 맵 (base wall x=700, 맵 내부에 배치)
       facilities.length=0;
-      facilities.push({ x:50,           y:600, w:200, h:400, hp:3000, maxHp:3000, team:0 });
-      facilities.push({ x:world.w-250,  y:600, w:200, h:400, hp:3000, maxHp:3000, team:1 });
+      facilities.push({ x:120,           y:Math.round(world.h*0.25), w:360, h:Math.round(world.h*0.5), hp:5000, maxHp:5000, team:0 });
+      facilities.push({ x:world.w-480,   y:Math.round(world.h*0.25), w:360, h:Math.round(world.h*0.5), hp:5000, maxHp:5000, team:1 });
       teamBattleWon=null; tbTimer=0;
       setupAiPlayers();
       setupCrates();
@@ -8718,57 +8719,118 @@
     function buildTeamBattleMap() {
       walls.length=0; doors.length=0; props.length=0; fixtures.length=0;
       const W=world.w, H=world.h, t=42, mX=W/2, mY=H/2;
-      // 외벽
+
+      // ── 외벽 ──
       addWall(0,0,W,t); addWall(0,H-t,W,t);
       addWall(0,0,t,H); addWall(W-t,0,t,H);
 
-      // ── BLUE 기지벽 (x=520) — 도어 3개 (상단/중앙/하단 통로) ──
-      const bx=520;
-      addWall(bx,t,t,H*0.22);
-      addDoor(bx,t+H*0.22,t,H*0.13,"v");       // 상단 통로
-      addWall(bx,t+H*0.35,t,H*0.15);
-      addDoor(bx,t+H*0.50,t,H*0.13,"v");       // 중앙 통로
-      addWall(bx,t+H*0.63,t,H*0.15);
-      addDoor(bx,t+H*0.78,t,H*0.13,"v");       // 하단 통로
-      addWall(bx,t+H*0.91,t,H-t-(t+H*0.91));
+      // ── 기지벽 (4도어 시스템) ──
+      // 맵 비율: bx=700, 4개 도어(높이 H*0.10씩) 균등 배치
+      const bx=700;
+      // Wall 구조: [wall][door1][wall][door2][wall][door3][wall][door4][wall]
+      // 비율: 0.18 / 0.10 / 0.13 / 0.10 / 0.07 / 0.10 / 0.13 / 0.10 / 0.09 = 1.00
+      const dh=Math.round(H*0.10); // 도어 높이
+      function addBaseDoors(bx2) {
+        addWall(bx2,t,          t, Math.round(H*0.18));
+        addDoor(bx2,t+Math.round(H*0.18), t, dh, "v");          // 도어1 (최상단)
+        addWall(bx2,t+Math.round(H*0.28), t, Math.round(H*0.13));
+        addDoor(bx2,t+Math.round(H*0.41), t, dh, "v");          // 도어2 (상단중앙)
+        addWall(bx2,t+Math.round(H*0.51), t, Math.round(H*0.07));
+        addDoor(bx2,t+Math.round(H*0.58), t, dh, "v");          // 도어3 (하단중앙) ← 스폰 라인
+        addWall(bx2,t+Math.round(H*0.68), t, Math.round(H*0.13));
+        addDoor(bx2,t+Math.round(H*0.81), t, dh, "v");          // 도어4 (최하단)
+        addWall(bx2,t+Math.round(H*0.91), t, H-t-t-Math.round(H*0.91));
+      }
+      addBaseDoors(bx);               // BLUE 기지벽
+      addBaseDoors(W-bx-t);           // RED 기지벽 (대칭)
 
-      // ── RED 기지벽 (대칭) ──
-      const rx=W-bx-t;
-      addWall(rx,t,t,H*0.22);
-      addDoor(rx,t+H*0.22,t,H*0.13,"v");
-      addWall(rx,t+H*0.35,t,H*0.15);
-      addDoor(rx,t+H*0.50,t,H*0.13,"v");
-      addWall(rx,t+H*0.63,t,H*0.15);
-      addDoor(rx,t+H*0.78,t,H*0.13,"v");
-      addWall(rx,t+H*0.91,t,H-t-(t+H*0.91));
+      const c = t; // 벽 두께
 
-      // ── 중앙 십자 엄폐물 ──
-      addWall(mX-110,mY-21,220,42);
-      addWall(mX-21,mY-110,42,220);
+      // ────────────────────────────────────────────────
+      // ── 중앙 요새 (Central Fortress) ──
+      // 십자 + 내부 4개 소형 엄폐물
+      // ────────────────────────────────────────────────
+      const fw=70, fa=320; // 암(arm) 길이
+      // 북쪽 암
+      addWall(mX-fw/2, mY-fa-fw, fw, fa);
+      // 남쪽 암
+      addWall(mX-fw/2, mY+fw,    fw, fa);
+      // 서쪽 암
+      addWall(mX-fa-fw, mY-fw/2, fa, fw);
+      // 동쪽 암
+      addWall(mX+fw,    mY-fw/2, fa, fw);
+      // 중앙 요새 내부 4개 코너 블록
+      const ci=100;
+      addWall(mX-ci-c,  mY-ci-c,  c, c);
+      addWall(mX+ci,    mY-ci-c,  c, c);
+      addWall(mX-ci-c,  mY+ci,    c, c);
+      addWall(mX+ci,    mY+ci,    c, c);
 
-      // ── 중앙 좌우 긴 복도 엄폐벽 (두 줄) ──
-      // 상단 레인
-      addWall(mX-320,mY-280,160,t);   addWall(mX+160,mY-280,160,t);
-      addWall(mX-320,mY-280,t,80);    addWall(mX+320,mY-280,t,80);
-      // 하단 레인
-      addWall(mX-320,mY+238,160,t);   addWall(mX+160,mY+238,160,t);
-      addWall(mX-320,mY+160,t,80);    addWall(mX+320,mY+160,t,80);
+      // ────────────────────────────────────────────────
+      // ── 4개 레인 엄폐 구조물 ──
+      // ────────────────────────────────────────────────
+      // 레인 Y좌표 (도어 중심)
+      const lane1Y = Math.round(t + H*0.18 + dh/2);  // ~594
+      const lane2Y = Math.round(t + H*0.41 + dh/2);  // ~1026+120=1146
+      const lane3Y = Math.round(t + H*0.58 + dh/2);  // ~1434+120=1554 (스폰)
+      const lane4Y = Math.round(t + H*0.81 + dh/2);  // ~1986+120=2106
 
-      // ── 측면 기지 앞 엄폐물 (좌우 대칭) ──
-      const off=200;
-      // 좌측 (BLUE 쪽)
-      addWall(bx+off,mY-210,t,140);
-      addWall(bx+off,mY+70, t,140);
-      addWall(bx+off,mY-70, 90,t);
-      // 우측 (RED 쪽)
-      addWall(rx-off-t,mY-210,t,140);
-      addWall(rx-off-t,mY+70, t,140);
-      addWall(rx-off-t-90,mY-70,90,t);
+      // 각 레인에 대칭 L자형 엄폐물
+      function addLaneCover(ly, flip) {
+        const f = flip ? -1 : 1;
+        // 좌측 엄폐 (L형)
+        const lx1 = bx+t+240;
+        addWall(lx1,          ly-c*3-120, c, 120);
+        addWall(lx1,          ly+c*3,     c, 120);
+        addWall(lx1,          ly-c*2,     120*f > 0 ? 120 : c, c);  // 수평 팔
+        // 우측 엄폐 (대칭 L형)
+        const rx2 = W-bx-t-t-240;
+        addWall(rx2,          ly-c*3-120, c, 120);
+        addWall(rx2,          ly+c*3,     c, 120);
+        addWall(rx2-120+c,    ly-c*2,     120, c);
+        // 레인 중간 엄폐물 (중앙 부근)
+        addWall(mX-220,       ly-c/2, 160, c);
+        addWall(mX+60,        ly-c/2, 160, c);
+      }
+      addLaneCover(lane1Y, false);
+      addLaneCover(lane2Y, true);
+      addLaneCover(lane3Y, false);
+      addLaneCover(lane4Y, true);
 
-      // ── 통로 중간 기둥 (4개 대칭) ──
-      addWall(mX-580,mY-90,t,180);  addWall(mX+580-t,mY-90,t,180);
-      addWall(mX-400,mY-90,t,80);   addWall(mX+400-t,mY-90,t,80);
-      addWall(mX-400,mY+10, t,80);  addWall(mX+400-t,mY+10, t,80);
+      // ────────────────────────────────────────────────
+      // ── 미드필드 복합 엄폐물 (좌우 대칭) ──
+      // ────────────────────────────────────────────────
+      const midX1 = Math.round(bx + t + (mX - bx - t) * 0.45);  // 좌 미드 (≈1175)
+      const midX2 = W - midX1 - c;                                // 우 미드 대칭
+
+      // 좌측 미드 복합 - T자형
+      addWall(midX1-160, mY-c/2, 320, c);
+      addWall(midX1-c/2, mY-200, c,   200);
+
+      // 우측 미드 복합 - 역T자형
+      addWall(midX2-160, mY-c/2, 320, c);
+      addWall(midX2-c/2, mY,     c,   200);
+
+      // ── 상단 사이드 룸 (레인1↔2 사이) ──
+      const sideRoomY1 = Math.round((lane1Y + lane2Y) / 2);  // 레인1과2 중간
+      addWall(mX-380, sideRoomY1-c/2, 200, c);
+      addWall(mX+180, sideRoomY1-c/2, 200, c);
+      addWall(mX-380, sideRoomY1-160, c,  160);
+      addWall(mX+380-c, sideRoomY1-160, c, 160);
+
+      // ── 하단 사이드 룸 (레인3↔4 사이) ──
+      const sideRoomY2 = Math.round((lane3Y + lane4Y) / 2);  // 레인3과4 중간
+      addWall(mX-380, sideRoomY2-c/2, 200, c);
+      addWall(mX+180, sideRoomY2-c/2, 200, c);
+      addWall(mX-380, sideRoomY2,     c,   160);
+      addWall(mX+380-c, sideRoomY2,   c,   160);
+
+      // ── 기지 앞 엄폐 기둥 (각 레인 입구) ──
+      const pillarOff = 280;
+      [lane1Y, lane2Y, lane3Y, lane4Y].forEach(ly => {
+        addWall(bx+t+pillarOff-c/2, ly-80, c, 160);       // BLUE쪽 기지 앞 기둥
+        addWall(W-bx-t-pillarOff-c/2, ly-80, c, 160);     // RED쪽 기지 앞 기둥
+      });
 
       usingCustomMap=true;
     }
@@ -8776,9 +8838,9 @@
     function setupAiPlayers() {
       aiPlayers.length = 0;
       const eteam = 1 - playerTeam;
-      const rx = world.w - 380;
-      // Spawn aligned with middle corridor (same as player spawn)
-      const aiSpawnY = Math.round(42 + world.h * 0.565);
+      const rx = world.w - 420;
+      // 플레이어 스폰과 동일한 중앙 도어 기준
+      const aiSpawnY = Math.round(42 + world.h * 0.63);
       // 오프라인 1인 플레이: 실제 플레이어 1명 → 상대팀 AI 1명만 (숫자 맞추기)
       const enemyChars = [0, 1, 2, 3].filter(i => i !== playerChar.id);
       const ciOrder = [1, 0, 2, 3]; // BULL → HAWK → VIPER → MEDIC 우선
@@ -8800,10 +8862,23 @@
     function setupCrates() {
       crates.length=0;
       const W=world.w, H=world.h, mX=W/2, mY=H/2;
-      [{x:mX,y:mY-300},{x:mX,y:mY+300},{x:mX-230,y:mY-170},{x:mX+230,y:mY-170},
-       {x:mX-230,y:mY+170},{x:mX+230,y:mY+170},{x:730,y:mY},{x:W-730,y:mY},
-       {x:mX-390,y:mY-70},{x:mX+390,y:mY-70},{x:mX-390,y:mY+70},{x:mX+390,y:mY+70}]
-      .forEach(p=>crates.push({x:p.x,y:p.y,w:50,h:50,hp:200,maxHp:200,dead:false}));
+      // 새 맵(3300x2400)에 맞춰 다양한 위치에 배치
+      [
+        // 중앙 요새 주변
+        {x:mX,      y:mY-380}, {x:mX,      y:mY+380},
+        {x:mX-340,  y:mY-240}, {x:mX+340,  y:mY-240},
+        {x:mX-340,  y:mY+240}, {x:mX+340,  y:mY+240},
+        // 각 레인 중간 엄폐
+        {x:mX-600,  y:mY-680}, {x:mX+600,  y:mY-680},  // 상단 레인
+        {x:mX-600,  y:mY+680}, {x:mX+600,  y:mY+680},  // 하단 레인
+        // 미드필드
+        {x:mX-500,  y:mY-100}, {x:mX+500,  y:mY-100},
+        {x:mX-500,  y:mY+100}, {x:mX+500,  y:mY+100},
+        // 기지 앞 접근로
+        {x:1050,    y:mY-380}, {x:W-1050,  y:mY-380},
+        {x:1050,    y:mY+380}, {x:W-1050,  y:mY+380},
+      ]
+      .forEach(p=>crates.push({x:p.x,y:p.y,w:60,h:60,hp:280,maxHp:280,dead:false}));
     }
 
     function updateAiPlayers(dt) {
@@ -8811,13 +8886,9 @@
         if (!ai.alive) continue;
 
         // MEDIC 스턴 오라 적용 시 멈춤
-        if (ai.stunTimer > 0) {
-          ai.stunTimer -= dt;
-          ai.isMoving = false;
-          continue;
-        }
+        if (ai.stunTimer > 0) { ai.stunTimer -= dt; ai.isMoving = false; continue; }
 
-        // 타겟 선정: 적 플레이어 → 적 AI → 적 기지
+        // ── 타겟 선정: 적 플레이어 > 적 AI > 적 기지 ──
         let target = null, bestDist = Infinity;
         if (ai.team !== playerTeam && player.hp > 0) {
           const d = Math.hypot(player.x - ai.x, player.y - ai.y);
@@ -8831,85 +8902,147 @@
         if (!target) {
           for (const fac of facilities) {
             if (fac.team === ai.team || fac.hp <= 0) continue;
-            const d = Math.hypot(fac.x + fac.w / 2 - ai.x, fac.y + fac.h / 2 - ai.y);
-            if (d < bestDist) { bestDist = d; target = { x: fac.x + fac.w / 2, y: fac.y + fac.h / 2, isFacility: true, fac }; }
+            const d = Math.hypot(fac.x+fac.w/2-ai.x, fac.y+fac.h/2-ai.y);
+            if (d < bestDist) { bestDist = d; target = { x:fac.x+fac.w/2, y:fac.y+fac.h/2, isFacility:true, fac }; }
           }
         }
         if (!target) continue;
+
+        // ── 캐릭터별 전투 파라미터 ──
+        let preferDist, shootRange, fireCd, dmg, hitChance, retreatFrac, spdMult;
+        switch (ai.charIdx) {
+          case 0: // HAWK — 빠른 연사 돌격수
+            preferDist=210; shootRange=720; fireCd=0.36; dmg=20; hitChance=0.84; retreatFrac=0.18; spdMult=1.05; break;
+          case 1: // BULL — 중장갑 근접 탱커 (돌진, 강타)
+            preferDist=140; shootRange=480; fireCd=0.62; dmg=42; hitChance=0.80; retreatFrac=0.10; spdMult=0.88; break;
+          case 2: // VIPER — 정밀 저격수 (원거리 유지, 초정밀)
+            preferDist=680; shootRange=1100; fireCd=0.95; dmg=65; hitChance=0.94; retreatFrac=0.25; spdMult=0.90; break;
+          case 3: // MEDIC — 중거리 지원 (자가치유)
+            preferDist=300; shootRange=660; fireCd=0.50; dmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=0.95; break;
+          default:
+            preferDist=250; shootRange=680; fireCd=0.55; dmg=24; hitChance=0.78; retreatFrac=0.20; spdMult=1.0;
+        }
+        if (target.isFacility) preferDist = 160;
+
+        const hpFrac = ai.hp / ai.maxHp;
+
+        // MEDIC 패시브: 정지 시 자가치유 (5%/초)
+        if (ai.charIdx === 3 && hpFrac < 0.95 && !ai.isMoving) {
+          ai.hp = Math.min(ai.maxHp, ai.hp + ai.maxHp * 0.05 * dt);
+        }
+
+        // ── AI 상태 머신: hunt → retreat → hunt ──
+        if (!ai.aiState) ai.aiState = "hunt";
+        if (hpFrac < retreatFrac)               ai.aiState = "retreat";
+        else if (hpFrac > retreatFrac * 2.8)    ai.aiState = "hunt";
 
         const tdx = target.x - ai.x, tdy = target.y - ai.y;
         const td = Math.hypot(tdx, tdy) || 1;
         ai.angle = Math.atan2(tdy, tdx);
 
-        // 캐릭터별 전투 스타일
-        let preferDist, shootRange, fireCd, dmg, hitChance;
-        switch (ai.charIdx) {
-          case 0: // HAWK - 공격적 돌격수, 빠른 연사
-            preferDist = 220; shootRange = 620; fireCd = 0.55; dmg = 14; hitChance = 0.70; break;
-          case 1: // BULL - 중장갑 탱커, 강타
-            preferDist = 190; shootRange = 480; fireCd = 0.95; dmg = 30; hitChance = 0.65; break;
-          case 2: // VIPER - 저격수, 원거리 유지
-            preferDist = 560; shootRange = 760; fireCd = 1.3;  dmg = 48; hitChance = 0.85; break;
-          case 3: // MEDIC - 중거리 지원
-            preferDist = 340; shootRange = 580; fireCd = 0.85; dmg = 18; hitChance = 0.55; break;
-          default:
-            preferDist = 250; shootRange = 600; fireCd = 0.80; dmg = 20; hitChance = 0.65;
-        }
-        if (target.isFacility) preferDist = 150;
+        // ── 이동 ──
+        if (!ai.stk) ai.stk = { x:ai.x, y:ai.y, t:0, esc:0, escA:0, idx:0 };
+        ai.stk.t -= dt;
+        const bx2 = ai.x, by2 = ai.y;
 
-        // 이동: moveCircle로 벽 충돌 처리
-        const beforeX = ai.x, beforeY = ai.y;
-        if (td > preferDist + 25) {
-          // 타겟으로 전진
-          moveCircle(ai, (tdx / td) * ai.speed * dt, (tdy / td) * ai.speed * dt);
-          ai.walkTime = (ai.walkTime || 0) + dt;
+        if (ai.stk.esc > 0) {
+          // 막힘 탈출 모드
+          ai.stk.esc -= dt;
+          moveCircle(ai, Math.cos(ai.stk.escA) * ai.speed * 0.9 * dt,
+                         Math.sin(ai.stk.escA) * ai.speed * 0.9 * dt);
           ai.isMoving = true;
-        } else if (ai.charIdx === 2 && td < preferDist - 80) {
+        } else if (ai.aiState === "retreat") {
+          // 후퇴: 적 반대 방향 + 측면 회피
+          if (!ai.retSide) ai.retSide = Math.random() < 0.5 ? 1 : -1;
+          const rx2 = -tdx/td, ry2 = -tdy/td;
+          const px2 = -tdy/td * ai.retSide, py2 = tdx/td * ai.retSide;
+          moveCircle(ai, (rx2*0.55 + px2*0.45) * ai.speed * spdMult * dt,
+                         (ry2*0.55 + py2*0.45) * ai.speed * spdMult * dt);
+          ai.isMoving = true;
+        } else if (td > preferDist + 30) {
+          // 전진: 타겟 방향
+          moveCircle(ai, tdx/td * ai.speed * spdMult * dt,
+                         tdy/td * ai.speed * spdMult * dt);
+          ai.isMoving = true;
+        } else if (ai.charIdx === 2 && td < preferDist - 140) {
           // VIPER: 너무 가까우면 후퇴
-          moveCircle(ai, -(tdx / td) * ai.speed * 0.7 * dt, -(tdy / td) * ai.speed * 0.7 * dt);
-          ai.walkTime = (ai.walkTime || 0) + dt;
+          moveCircle(ai, -tdx/td * ai.speed * 0.95 * dt,
+                         -tdy/td * ai.speed * 0.95 * dt);
           ai.isMoving = true;
         } else {
-          // 적정거리 유지 중 측면 이동(스트레이프)
-          if (!ai.strafeTimer) ai.strafeTimer = 0;
-          ai.strafeTimer -= dt;
-          if (ai.strafeTimer <= 0) {
-            ai.strafeDir = (ai.strafeDir || 1) * -1;
-            ai.strafeTimer = 0.7 + Math.random() * 0.9;
+          // 스트레이프 (적정거리에서 측면 기동)
+          if (!ai.strT) ai.strT = 0;
+          ai.strT -= dt;
+          if (ai.strT <= 0) {
+            ai.strafeDir = -(ai.strafeDir || 1);
+            ai.strT = 0.55 + Math.random() * 1.1;
           }
-          const px = -tdy / td, py = tdx / td;
-          moveCircle(ai, px * ai.speed * 0.45 * dt * (ai.strafeDir || 1),
-                         py * ai.speed * 0.45 * dt * (ai.strafeDir || 1));
-          ai.walkTime = (ai.walkTime || 0) + dt * 0.5;
-          ai.isMoving = true;
+          const sp2 = ai.charIdx === 1 ? 0.85 : 0.60;
+          const px3 = -tdy/td, py3 = tdx/td;
+          moveCircle(ai, px3 * ai.speed * sp2 * dt * (ai.strafeDir||1),
+                         py3 * ai.speed * sp2 * dt * (ai.strafeDir||1));
+          ai.isMoving = Math.hypot(ai.x-bx2, ai.y-by2) > 0.5;
         }
 
-        // 막힌 경우 랜덤 방향으로 탈출 시도
-        if (!ai.stuckTimer) { ai.stuckTimer = 0; ai.lastX = ai.x; ai.lastY = ai.y; }
-        ai.stuckTimer -= dt;
-        if (ai.stuckTimer <= 0) {
-          const moved = Math.hypot(ai.x - (ai.lastX || ai.x), ai.y - (ai.lastY || ai.y));
-          if (moved < 4 && td > preferDist) {
-            const ra = Math.random() * Math.PI * 2;
-            moveCircle(ai, Math.cos(ra) * ai.speed * 0.35, Math.sin(ra) * ai.speed * 0.35);
+        // walkTime 애니메이션
+        if (ai.isMoving) ai.walkTime = (ai.walkTime||0) + dt;
+
+        // ── Stuck 감지 → 8방향 순차 탈출 ──
+        if (ai.stk.t <= 0) {
+          const mv = Math.hypot(ai.x-ai.stk.x, ai.y-ai.stk.y);
+          if (mv < 6 && td > preferDist * 0.8 && ai.stk.esc <= 0) {
+            // 8방향 중 순환하며 시도 (막히면 다음 방향)
+            ai.stk.escA = ai.angle + Math.PI * 0.25 * (ai.stk.idx % 8);
+            // 인접하지 않은 방향도 시도: 뒤쪽 45° 추가 오프셋
+            if (ai.stk.idx % 2 === 1) ai.stk.escA += Math.PI;
+            ai.stk.idx = (ai.stk.idx + 1) % 8;
+            ai.stk.esc = 0.45 + Math.random() * 0.25;
           }
-          ai.lastX = ai.x; ai.lastY = ai.y;
-          ai.stuckTimer = 0.45;
+          ai.stk.x = ai.x; ai.stk.y = ai.y;
+          ai.stk.t = 0.35;
         }
 
-        // 사격
-        ai.shootCd -= dt;
+        // ── 사격 (트레이서 포함) ──
+        ai.shootCd = (ai.shootCd||0) - dt;
         if (ai.shootCd <= 0 && td < shootRange) {
-          ai.shootCd = fireCd + Math.random() * 0.35;
-          if (Math.random() < hitChance) {
+          ai.shootCd = fireCd * (0.75 + Math.random() * 0.5);
+
+          // 플레이어 이동 예측 (직전 위치 대비)
+          let aimX = target.x, aimY = target.y;
+          if (target.isPlayer) {
+            const prevX = ai._px !== undefined ? ai._px : target.x;
+            const prevY = ai._py !== undefined ? ai._py : target.y;
+            const predT = Math.min(0.18, td / 900);
+            const vx = (target.x - prevX) / Math.max(dt, 0.016);
+            const vy = (target.y - prevY) / Math.max(dt, 0.016);
+            aimX = target.x + vx * predT * 0.55;
+            aimY = target.y + vy * predT * 0.55;
+          }
+          ai._px = target.x; ai._py = target.y;
+
+          const hits = Math.random() < hitChance;
+          const jitter = hits ? 18 : (1 - hitChance) * 180;
+          const tx1 = ai.x + Math.cos(ai.angle) * 22;
+          const ty1 = ai.y + Math.sin(ai.angle) * 22;
+          const tx2 = aimX + (Math.random()-0.5)*jitter;
+          const ty2 = aimY + (Math.random()-0.5)*jitter;
+
+          // 시각적 트레이서 (항상 표시)
+          enemyTracers.push({ x1:tx1, y1:ty1, x2:tx2, y2:ty2, life:0.20, maxLife:0.20 });
+          burst(tx1, ty1, ai.team===playerTeam ? "#4488ff" : "#ff6633", 2);
+
+          if (hits) {
+            const finalDmg = dmg * (hpFrac < 0.5 ? 0.85 : 1.0);
             if (target.isPlayer && player.invuln <= 0) {
-              player.hp = Math.max(0, player.hp - dmg);
-              if (player.hp <= 0) { player.hp = 0; if (gameMode !== "teambattle") state = "dead"; }
+              player.hp = Math.max(0, player.hp - finalDmg);
+              player.invuln = 0.08;
+              shake = Math.max(shake, 5);
+              if (player.hp <= 0) { player.hp=0; if(gameMode!=="teambattle") state="dead"; }
             } else if (target.alive !== undefined) {
               target.hp = Math.max(0, target.hp - dmg);
-              if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+              if (target.hp <= 0) { target.hp=0; target.alive=false; }
             } else if (target.isFacility) {
-              target.fac.hp = Math.max(0, target.fac.hp - Math.round(dmg * 0.65));
+              target.fac.hp = Math.max(0, target.fac.hp - Math.round(dmg * 0.7));
             }
           }
         }
