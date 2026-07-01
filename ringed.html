@@ -1271,8 +1271,8 @@
       return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h) && rect.w > 0 && rect.h > 0;
     }
 
-    function addWall(x, y, w, h) {
-      walls.push({ x, y, w, h });
+    function addWall(x, y, w, h, opts) {
+      walls.push({ x, y, w, h, thin: !!(opts && opts.thin) });
     }
 
     function addDoor(x, y, w, h, axis) {
@@ -1685,7 +1685,7 @@
       const st = playerChar.skillType;
       if (st === "stun_aura") {
         // MEDIC: 주변 적 마취 (220px — 팀배틀 게임 밸런스)
-        const stunR = 220;
+        const stunR = 286;
         for (const e of enemies) {
           if (Math.hypot(e.x - player.x, e.y - player.y) < stunR) {
             e.slowTimer = 3.0;
@@ -1807,7 +1807,7 @@
       for (const enemy of missileAllTargets) {
         const d = Math.hypot(enemy.x - x, enemy.y - y);
         if (d <= radius && hasExplosionLineOfSight(x, y, enemy.x, enemy.y, d)) {
-          const dmgMi = (1800 * (1 - d / radius) + 900) * (rageActive ? 2 : 1);
+          const dmgMi = (2340 * (1 - d / radius) + 1170) * (rageActive ? 2 : 1);
           enemy.hp -= dmgMi;
           if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
           skillEnergy = Math.min(1, skillEnergy + dmgMi / 1000);
@@ -2657,7 +2657,7 @@
             ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
           for (const e of hmAllTargets) {
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
-              const dmgH = 150 * (rageActive ? 2 : 1);
+              const dmgH = 195 * (rageActive ? 2 : 1);
               e.hp -= dmgH;
               if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
               skillEnergy = Math.min(1, skillEnergy + dmgH / 1000);
@@ -2701,7 +2701,7 @@
             ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
           for (const e of hmTargets2) {
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
-              const dmgHM = 150 * (rageActive ? 2 : 1);
+              const dmgHM = 195 * (rageActive ? 2 : 1);
               e.hp -= dmgHM;
               if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
               skillEnergy = Math.min(1, skillEnergy + dmgHM / 1000);
@@ -2748,7 +2748,7 @@
           if (dr.hoverTimer <= 0) {
             dr.phase = "firing";
             dr.laserTimer = 0.4;
-            const dmgAmt = 200 * (rageActive ? 2 : 1);
+            const dmgAmt = 260 * (rageActive ? 2 : 1);
             const isValidEnemy = enemies.includes(dr.target) ||
               (gameMode === "teambattle" && aiPlayers.includes(dr.target) && dr.target.alive && dr.target.team !== playerTeam);
             if (isValidEnemy) {
@@ -2907,13 +2907,12 @@
         tbTimer += dt;
         if (isCinematic) {
           updateCinematic(dt);
-          // 시네마틱 중: AI/플레이어 게임 로직은 유지하되 convoy는 업데이트 안 함
         } else {
           updateAiPlayers(dt);
           updateTurrets(dt);
-          updateConvoy(dt);
           checkTeamBattleWin();
         }
+        updateConvoy(dt);
         if (tbOnlineMode) {
           if (mp.role === "tbhost") {
             updateTBNetPlayers(dt);
@@ -9494,7 +9493,7 @@
             bullets.push({
               x: turret.x + dx * 30, y: turret.y + dy * 30,
               vx: dx * speed, vy: dy * speed,
-              dmg: 28, life: 0.8, team: turret.team, fromTurret: true,
+              dmg: 42, life: 0.8, team: turret.team, fromTurret: true,
               isBullet: true
             });
             turret.fireFlash = 0.12;
@@ -9510,21 +9509,22 @@
       const cols = Math.ceil(world.w / cs) + 1;
       const rows = Math.ceil(world.h / cs) + 1;
       const blocked = new Uint8Array(cols * rows);
-      const margin = 52; // convoy r=35 + safety buffer
-      function markBlocked(rx, ry, rw, rh) {
-        const x0 = Math.max(0, Math.floor((rx - margin) / cs));
-        const x1 = Math.min(cols - 1, Math.ceil((rx + rw + margin) / cs));
-        const y0 = Math.max(0, Math.floor((ry - margin) / cs));
-        const y1 = Math.min(rows - 1, Math.ceil((ry + rh + margin) / cs));
+      const margin = 52;     // convoy r=35 + safety buffer (큰 구조물용)
+      const thinMargin = 6;  // 엄폐용 기둥/소형 장애물 — 플레이어 스케일 통로를 막지 않도록 최소 여유만 적용
+      function markBlocked(rx, ry, rw, rh, m) {
+        const x0 = Math.max(0, Math.floor((rx - m) / cs));
+        const x1 = Math.min(cols - 1, Math.floor((rx + rw + m - 0.001) / cs));
+        const y0 = Math.max(0, Math.floor((ry - m) / cs));
+        const y1 = Math.min(rows - 1, Math.floor((ry + rh + m - 0.001) / cs));
         for (let r = y0; r <= y1; r++)
           for (let c2 = x0; c2 <= x1; c2++)
             blocked[r * cols + c2] = 1;
       }
-      for (const wall of walls) markBlocked(wall.x, wall.y, wall.w, wall.h);
+      for (const wall of walls) markBlocked(wall.x, wall.y, wall.w, wall.h, wall.thin ? thinMargin : margin);
       for (const prop of props) {
         if (prop.type !== 'crate') continue;
         const cr = propCollisionRect(prop);
-        markBlocked(cr.x, cr.y, cr.w, cr.h);
+        markBlocked(cr.x, cr.y, cr.w, cr.h, margin);
       }
       return { blocked, cols, rows, cs };
     }
@@ -9595,7 +9595,7 @@
     }
 
     function updateConvoy(dt) {
-      if (!convoy || !convoy.alive || isCinematic) return;
+      if (!convoy || !convoy.alive) return;
       convoy.hitFlash = Math.max(0, convoy.hitFlash - dt);
       convoy.invuln  = Math.max(0, convoy.invuln  - dt);
       if (!convoy.goldLoaded) return;
@@ -9781,6 +9781,12 @@
         });
       }
 
+      // 금고 파괴 즉시 방호복 장착 팀에 HP 완전 회복
+      if (destroyerTeam === playerTeam && player.hp > 0) {
+        player.hp = playerChar.tbHp;
+        ragePrevHp = player.hp;
+      }
+
       cinematicState = {
         phase: "vault_explode",
         timer: 0, totalTimer: 0, maxDuration: 30,
@@ -9869,9 +9875,9 @@
           screenWhiteFlash = 0.4;
           screenDmgFlash = 0.4;
         }
-        if (c.timer >= 5.5) { c.phase = "armor_equip"; c.timer = 0; }
+        if (c.timer >= 3.5) { c.phase = "armor_equip"; c.timer = 0; }
       } else if (c.phase === "armor_equip") {
-        if (c.timer >= 5.5 && !c.armorEquipped) {
+        if (c.timer >= 3.0 && !c.armorEquipped) {
           c.armorEquipped = true;
           if (c.destroyerTeam === playerTeam) {
             playerArmorSuit = true; armorSuitCharId = 0;
@@ -9885,10 +9891,10 @@
           addShockRing(c.destroyerX, c.destroyerY, "#FFFFFF", 25, 0.7, 2);
           playTone(660, 0.5, 0.5);
         }
-        if (c.timer >= 8) { c.phase = "convoy_appear"; c.timer = 0; }
+        if (c.timer >= 5.0) { c.phase = "convoy_appear"; c.timer = 0; }
       } else if (c.phase === "convoy_appear") {
         convoyMaterializeT = Math.min(1, c.timer / 1.5);
-        if (c.timer >= 2.0 && !c.convoySpawned) {
+        if (c.timer >= 1.0 && !c.convoySpawned) {
           c.convoySpawned = true;
           const destPlat = spawnPlatforms.find(p => p.team === c.destroyerTeam);
           const destX = destPlat ? destPlat.x : (c.destroyerTeam === 0 ? 300 : 3000);
@@ -9899,7 +9905,7 @@
             r: 35, w: 120, h: 70, alive: true,
             waypoints: [{ x: destX, y: destY }], waypointIdx: 0,
             destX, destY,
-            goldLoaded: false, reachedBase: false,
+            goldLoaded: true, reachedBase: false,
             hitFlash: 0, invuln: 3.0, pathComputed: false
           };
           addShockRing(c.vX, c.vY, convoy.team === 0 ? "#4488FF" : "#FF4444", 100, 0.8, 3);
@@ -9907,7 +9913,7 @@
         if (c.timer >= 3.0) {
           cargoLoadProgress = Math.min(1, (c.timer - 3.0) / 2.5);
         }
-        if (c.timer >= 7) { c.phase = "done"; c.timer = 0; }
+        if (c.timer >= 4.0) { c.phase = "done"; c.timer = 0; }
       } else if (c.phase === "done" || c.totalTimer >= c.maxDuration) {
         if (convoy) convoy.goldLoaded = true;
         cinematicState = null;
@@ -9954,10 +9960,10 @@
       const lane3Y = Math.round(t + H*0.65 + dh/2);   // ≈ 1634
       const lane4Y = Math.round(t + H*0.92 + dh/2);   // ≈ 2350 → 클램프 필요 없이 ok
 
-      // ── 기지 앞 기둥 (레인 입구 엄폐)
+      // ── 기지 앞 기둥 (레인 입구 엄폐) — convoy(r=35)가 지나갈 여유를 위해 높이 축소 + A* 그리드에서 얇은 장애물로 취급
       [lane1Y,lane2Y,lane3Y,lane4Y].forEach(ly=>{
-        addWall(bx+t+220-c/2, ly-70, c, 140);
-        addWall(W-bx-t-220-c/2, ly-70, c, 140);
+        addWall(bx+t+220-c/2, ly-45, c, 90, {thin:true});
+        addWall(W-bx-t-220-c/2, ly-45, c, 90, {thin:true});
       });
 
       // ── 중앙 큰 십자 요새 (convoy A*가 우회)
@@ -10000,10 +10006,51 @@
       // ── 미드필드 소형 엄폐물 (레인2↔3 사이, 좌우 대칭)
       const mf1x = Math.round(bx + t + (mX-bx-t)*0.4);   // ≈ 1115
       const mf2x = W - mf1x - c;
-      addWall(mf1x-70, mY-c/2, 140, c);   // 수평
-      addWall(mf1x-70, mY-160, c,   160); // 왼 수직
-      addWall(mf2x-70, mY-c/2, 140, c);
-      addWall(mf2x+70-c, mY-160, c, 160); // 오른 수직 (역방향)
+      addWall(mf1x-70, mY-c/2, 140, c, {thin:true});   // 수평
+      addWall(mf1x-70, mY-160, c,   160, {thin:true}); // 왼 수직
+      addWall(mf2x-70, mY-c/2, 140, c, {thin:true});
+      addWall(mf2x+70-c, mY-160, c, 160, {thin:true}); // 오른 수직 (역방향)
+
+      // ── 하단부 추가 엄폐물 (중앙 이하 빈 공간)
+      // convoy 경로(y≈1200) 아래에만 배치 — convoy A*에 영향 없음
+
+      // 1) 하단 외곽 C형 섬 (y≈1760, 좌·우 대칭)
+      const loY = Math.round(mY + 560);  // 1760
+      const loW = 220;
+      // 좌측 C (오른쪽/중앙 방향 열림)
+      addWall(880,              loY,          loW, c);
+      addWall(880,              loY,          c,   loW);
+      addWall(880,              loY+loW-c,    loW, c);
+      // 우측 C (왼쪽/중앙 방향 열림)
+      addWall(W-880-loW,        loY,          loW, c);
+      addWall(W-880-loW+loW-c,  loY,          c,   loW);
+      addWall(W-880-loW,        loY+loW-c,    loW, c);
+
+      // 2) 하단 L형 엄폐 (y≈1720, 레인3 아래 좌·우 대칭)
+      const lcY = Math.round(mY + 520);  // 1720
+      const lcW = 160;
+      // 좌측 L (수평+왼쪽 수직)
+      addWall(mX-450,           lcY,          lcW, c);
+      addWall(mX-450,           lcY,          c,   130);
+      // 우측 L (수평+오른쪽 수직)
+      addWall(mX+450-lcW,       lcY,          lcW, c);
+      addWall(mX+450-c,         lcY,          c,   130);
+
+      // 3) 하단 미드필드 소형 엄폐 (y≈2000, 레인3↔4 사이)
+      const lmY = Math.round(mY + 800);  // 2000
+      addWall(mf1x-70, lmY, 140, c, {thin:true});
+      addWall(mf1x-70, lmY, c,   100, {thin:true});
+      addWall(mf2x-70, lmY, 140, c, {thin:true});
+      addWall(mf2x+70-c, lmY, c, 100, {thin:true});
+
+      // 4) 레인4 전방 소형 벙커 (y≈2120, 하단 레인 공략 엄폐)
+      const lbY = Math.round(mY + 920);  // 2120
+      // 좌 (수평 + 수직 상향)
+      addWall(860,              lbY,    130, c);
+      addWall(860,              lbY-90, c,   90);
+      // 우 (수평 + 수직 상향, 반전)
+      addWall(W-860-130,        lbY,    130, c);
+      addWall(W-860-130+130-c,  lbY-90, c,   90);
 
       usingCustomMap=true;
     }
@@ -10143,21 +10190,24 @@
         // convoy 우선 타겟 처리
         if (convoy && convoy.alive && convoy.goldLoaded) {
           if (convoy.team !== ai.team) {
-            // 적팀 convoy → 최우선 공격 타겟
+            // 적팀 convoy → 거리 기반 우선순위 (적과 동등 경쟁)
             const d = Math.hypot(convoy.x - ai.x, convoy.y - ai.y);
             if (d < (ai.range||680) * 1.5) {
-              target = { x: convoy.x, y: convoy.y, isConvoy: true };
-              targetId = 'convoy';
-              bestScore = 10000 - d; // 다른 타겟보다 압도적으로 높은 점수
+              const sc = -d * 0.6;
+              if (sc > bestScore) {
+                bestScore = sc;
+                target = { x: convoy.x, y: convoy.y, isConvoy: true };
+                targetId = 'convoy';
+              }
             }
           } else if (ai.isConvoyEscort) {
-            // 아군 convoy 에스코트: convoy 주변에 포진하면서 적 공격
+            // 아군 convoy 에스코트: convoy 주변 120px에 분산 포진
             const escortAIs = aiPlayers.filter(a => a.isConvoyEscort && a.team === ai.team);
             const escortIdx = escortAIs.indexOf(ai);
             const escortCount = Math.max(1, escortAIs.length);
-            const offsetAngle = (escortIdx / escortCount) * Math.PI * 2;
-            ai._escortX = convoy.x + Math.cos(offsetAngle) * 80;
-            ai._escortY = convoy.y + Math.sin(offsetAngle) * 80;
+            const offsetAngle = (escortIdx / escortCount) * Math.PI * 2 + Math.PI * 0.25;
+            ai._escortX = convoy.x + Math.cos(offsetAngle) * 120;
+            ai._escortY = convoy.y + Math.sin(offsetAngle) * 120;
           }
         }
 
@@ -10249,13 +10299,11 @@
             if (sc > bestScore) { bestScore = sc; target = { x:fac.x+fac.w/2, y:fac.y+fac.h/2, isFacility:true, fac }; targetId = 'fac' + fi; }
           }
         }
-        // convoy 에스코트: 적이 없으면 convoy 옆 포지션으로 이동
-        if (!target && ai.isConvoyEscort && ai._escortX !== undefined) {
-          const ed = Math.hypot(ai._escortX - ai.x, ai._escortY - ai.y);
-          if (ed > 30) {
-            target = { x: ai._escortX, y: ai._escortY, isGuard: true };
-            targetId = 'escort';
-          }
+        // convoy 에스코트: 전투 타겟 보존, 이동은 항상 convoy 옆으로
+        if (ai.isConvoyEscort && ai._escortX !== undefined) {
+          ai._escortFightTarget = (target && !target.isGuard && !target.isFacility && !target.isHealTarget) ? target : null;
+          target = { x: ai._escortX, y: ai._escortY, isGuard: true };
+          targetId = 'escort_pos';
         }
         if (!target) continue;
 
@@ -10296,12 +10344,25 @@
         // ── 시야선 확인 ──
         const losToTarget = hasLOS(ai.x, ai.y, target.x, target.y);
 
+        // convoy 에스코트: 사격/조준은 fight target 기준, 이동은 convoy 방향 유지
+        let effTgt = target, effTd = td, effLOS = losToTarget;
+        if (ai.isConvoyEscort && ai._escortFightTarget) {
+          const ft = ai._escortFightTarget;
+          if (ft.alive !== false && (ft.hp === undefined || ft.hp > 0)) {
+            const fdx = ft.x - ai.x, fdy = ft.y - ai.y;
+            effTgt = ft;
+            effTd = Math.hypot(fdx, fdy) || 1;
+            effLOS = hasLOS(ai.x, ai.y, ft.x, ft.y);
+            if (effLOS || effTd < 400) ai.angle = Math.atan2(fdy, fdx);
+          }
+        }
+
         // ── 무기 선택: 거리·시야선 기반 동적 전환 ──
         ai.aiBombCd = (ai.aiBombCd || 0) - dt;
-        if (!target.isFacility && !losToTarget && td < 400 && ai.aiBombCd <= 0) {
+        if (!effTgt.isFacility && !effLOS && effTd < 400 && ai.aiBombCd <= 0) {
           // 벽 뒤에 있는 적 → 수류탄
           ai.aiWeapon = 'bomb';
-        } else if (losToTarget && td < 230 && ai.charIdx !== 2) {
+        } else if (effLOS && effTd < 230 && ai.charIdx !== 2) {
           // 근거리(VIPER 제외) → 권총(빠른 연사)
           ai.aiWeapon = 'pistol';
         } else {
@@ -10413,8 +10474,8 @@
           bombs.push({
             x: ai.x, y: ai.y,
             sx: ai.x, sy: ai.y,
-            tx: clamp(target.x + (Math.random()-0.5)*80, 70, world.w-70),
-            ty: clamp(target.y + (Math.random()-0.5)*80, 70, world.h-70),
+            tx: clamp(effTgt.x + (Math.random()-0.5)*80, 70, world.w-70),
+            ty: clamp(effTgt.y + (Math.random()-0.5)*80, 70, world.h-70),
             life: 0.52, maxLife: 0.52, r: 13, hostile: true
           });
           burst(ai.x, ai.y, "#ff9933", 4);
@@ -10444,7 +10505,7 @@
           wHitChance = hitChance; wJitterHit = 14; wJitterMiss = 130;
         }
 
-        if (!target.isGuard && !target.isHealTarget && ai.shootCd <= 0 && ai.aiBurstPause <= 0 && td < wRange && losToTarget) {
+        if (!effTgt.isGuard && !effTgt.isHealTarget && ai.shootCd <= 0 && ai.aiBurstPause <= 0 && effTd < wRange && effLOS) {
           // 버스트 카운터 초기화
           if (!ai.aiBurstLeft || ai.aiBurstLeft <= 0) {
             ai.aiBurstLeft = (ai.charIdx === 2) ? 1 : (3 + Math.floor(Math.random() * 2)); // VIPER 단발, 나머지 3~4발
@@ -10458,19 +10519,19 @@
           ai.shootCd = wFireCd * (0.65 + Math.random() * 0.35);
 
           // 이동 예측 조준 — 3프레임 이력 기반 속도 추정
-          let aimX = target.x, aimY = target.y;
-          if (target.isPlayer || target.alive !== undefined) {
+          let aimX = effTgt.x, aimY = effTgt.y;
+          if (effTgt.isPlayer || effTgt.alive !== undefined) {
             if (!ai._posHist) ai._posHist = [];
-            ai._posHist.push({ x: target.x, y: target.y });
+            ai._posHist.push({ x: effTgt.x, y: effTgt.y });
             if (ai._posHist.length > 4) ai._posHist.shift();
             if (ai._posHist.length >= 3) {
               const old = ai._posHist[0];
               const frames = ai._posHist.length - 1;
-              const vx = (target.x - old.x) / (frames * Math.max(dt, 0.016));
-              const vy = (target.y - old.y) / (frames * Math.max(dt, 0.016));
-              const predT = Math.min(0.22, td / 820);
-              aimX = target.x + vx * predT * 0.65;
-              aimY = target.y + vy * predT * 0.65;
+              const vx = (effTgt.x - old.x) / (frames * Math.max(dt, 0.016));
+              const vy = (effTgt.y - old.y) / (frames * Math.max(dt, 0.016));
+              const predT = Math.min(0.22, effTd / 820);
+              aimX = effTgt.x + vx * predT * 0.65;
+              aimY = effTgt.y + vy * predT * 0.65;
             }
           } else {
             ai._posHist = null;
@@ -10500,7 +10561,7 @@
           if (!wallBlocked && hits) {
             const _aiFireArmorMult = (ai.team !== playerTeam && playerArmorSuit) ? 0.5 : 1.0;
             const finalDmg = wDmg * (hpFrac < 0.5 ? 0.85 : 1.0) * _aiFireArmorMult;
-            if (target.isPlayer && player.invuln <= 0) {
+            if (effTgt.isPlayer && player.invuln <= 0) {
               player.hp = Math.max(0, player.hp - finalDmg);
               player.invuln = 0.08;
               shake = Math.max(shake, 5);
@@ -10517,18 +10578,18 @@
                   burst(player.x, player.y, "#ff4444", 25);
                 }
               }
-            } else if (target.alive !== undefined) {
-              const _targetArmorMult = target.armorSuit ? 0.5 : 1.0;
-              target.hp = Math.max(0, target.hp - wDmg * _targetArmorMult);
-              if (target.hp <= 0) {
-                target.hp=0; target.alive=false; target.respawnTimer = 10;
+            } else if (effTgt.alive !== undefined) {
+              const _targetArmorMult = effTgt.armorSuit ? 0.5 : 1.0;
+              effTgt.hp = Math.max(0, effTgt.hp - wDmg * _targetArmorMult);
+              if (effTgt.hp <= 0) {
+                effTgt.hp=0; effTgt.alive=false; effTgt.respawnTimer = 10;
                 tbKills[ai.team]++;
-                killFeed.unshift({ text: ai.name + " ▶ " + (target.name||"?"), color: "#f84", life: 3.5, maxLife: 3.5 });
+                killFeed.unshift({ text: ai.name + " ▶ " + (effTgt.name||"?"), color: "#f84", life: 3.5, maxLife: 3.5 });
                 if (killFeed.length > 5) killFeed.pop();
               }
-            } else if (target.isFacility) {
-              target.fac.hp = Math.max(0, target.fac.hp - Math.round(wDmg * 0.7));
-            } else if (target.isConvoy && convoy && convoy.alive && convoy.invuln <= 0 && convoy.team !== ai.team) {
+            } else if (effTgt.isFacility) {
+              effTgt.fac.hp = Math.max(0, effTgt.fac.hp - Math.round(wDmg * 0.7));
+            } else if (effTgt.isConvoy && convoy && convoy.alive && convoy.invuln <= 0 && convoy.team !== ai.team) {
               convoy.hp = Math.max(0, convoy.hp - wDmg);
               convoy.hitFlash = 0.18;
               burst(tx2, ty2, "#cc8822", 4);
@@ -11733,7 +11794,7 @@
 
     function vaultExitBtnRect() {
       const cx = canvas.width/2, cy = canvas.height/2;
-      return {x: cx-100, y: cy+100, w:200, h:50};
+      return {x: cx-160, y: cy+120, w:320, h:64};
     }
 
     function drawVaultMissionOverlay() {
@@ -11791,21 +11852,37 @@
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText(`KILLS  ${myKills} — ${enemyKills}`, cx, cy + cy * 0.22);
       }
-      // EXIT 버튼
+      // 메인 화면으로 버튼
       const exitBtn = vaultExitBtnRect();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#1a1a2e';
-      ctx.strokeStyle = '#ffd700';
+      const now2 = performance.now() * 0.001;
+      const pulse = 0.6 + Math.abs(Math.sin(now2 * 2.5)) * 0.4;
+      // 버튼 글로우
+      ctx.shadowColor = isWin ? '#ffd700' : '#ff4444';
+      ctx.shadowBlur = 18 * pulse;
+      ctx.fillStyle = isWin ? 'rgba(40,30,0,0.92)' : 'rgba(40,0,0,0.92)';
+      ctx.strokeStyle = isWin ? `rgba(255,215,0,${pulse})` : `rgba(255,80,80,${pulse})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.rect(exitBtn.x, exitBtn.y, exitBtn.w, exitBtn.h);
+      ctx.roundRect(exitBtn.x, exitBtn.y, exitBtn.w, exitBtn.h, 8);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#ffd700';
-      ctx.font = 'bold 22px serif';
+      // 상단 하이라이트 라인
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = isWin ? 'rgba(255,255,180,0.35)' : 'rgba(255,180,180,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(exitBtn.x + 10, exitBtn.y + 2);
+      ctx.lineTo(exitBtn.x + exitBtn.w - 10, exitBtn.y + 2);
+      ctx.stroke();
+      // 버튼 텍스트
+      ctx.fillStyle = isWin ? '#ffd700' : '#ff6666';
+      ctx.font = `bold ${Math.round(exitBtn.h * 0.38)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('EXIT TO MENU', exitBtn.x + exitBtn.w/2, exitBtn.y + exitBtn.h/2);
+      ctx.shadowColor = isWin ? '#ffd700' : '#ff4444';
+      ctx.shadowBlur = 10;
+      ctx.fillText('⬅  메인 화면으로 돌아가기', exitBtn.x + exitBtn.w/2, exitBtn.y + exitBtn.h/2);
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
 
