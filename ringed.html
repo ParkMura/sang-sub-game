@@ -513,6 +513,8 @@
 
     function playSfx(name, rate = 1) {
       unlockAudio();
+      // 리치 합성 엔진을 전 플랫폼 1순위로 — 더 화려하고 일관된 사운드
+      if (playRichSfx(name, rate)) return;
       if (isMobile && playProceduralSfx(name, rate)) return;
       const sound = sfx[name];
       if (playBufferSfx(name, rate)) return;
@@ -653,6 +655,222 @@
       } catch (error) {
         return false;
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 리치 사운드 엔진 (전 플랫폼 Web Audio 합성 — 파일/CDN 의존 없음)
+    // 무기·스킬·이벤트별로 겹겹이 레이어링해 더 역동적이고 화려하게.
+    // ═══════════════════════════════════════════════════════════
+    let masterGain = null;
+    function getMaster() {
+      if (!audioCtx) return null;
+      if (!masterGain) {
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0.9;
+        masterGain.connect(audioCtx.destination);
+      }
+      return masterGain;
+    }
+    // 톤 레이어 (마스터 경유, 커스텀 어택/릴리즈)
+    function fxTone({ type = "sine", f0, f1, dur, vol, delay = 0, attack = 0.006, dest = null }) {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime + delay;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, now);
+      if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), now + dur);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(vol, now + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(g); g.connect(dest || getMaster() || audioCtx.destination);
+      osc.start(now); osc.stop(now + dur + 0.02);
+    }
+    // 노이즈 레이어 (크랙/폭발음용)
+    function fxNoise({ dur, vol, type = "bandpass", freq = 900, q = 1.2, delay = 0, f1 = null }) {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime + delay;
+      const src = audioCtx.createBufferSource();
+      const filt = audioCtx.createBiquadFilter();
+      const g = audioCtx.createGain();
+      src.buffer = getNoiseBuffer(dur);
+      filt.type = type;
+      filt.frequency.setValueAtTime(freq, now);
+      if (f1) filt.frequency.exponentialRampToValueAtTime(Math.max(40, f1), now + dur);
+      filt.Q.setValueAtTime(q, now);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(vol, now + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(filt); filt.connect(g); g.connect(getMaster() || audioCtx.destination);
+      src.start(now); src.stop(now + dur + 0.02);
+    }
+    // 서브 베이스 임팩트 (폭발/저격의 묵직함)
+    function fxThump(f0, f1, dur, vol) { fxTone({ type: "sine", f0, f1, dur, vol, attack: 0.004 }); }
+
+    // 무기/스킬/이벤트별 화려한 합성음 — 처리하면 true 반환
+    function playRichSfx(name, rate = 1) {
+      if (!audioCtx || audioCtx.state === "suspended") return false;
+      const R = rate || 1;
+      switch (name) {
+        case "playerGun": {
+          // 현재 무기별로 다른 텍스처
+          const w = (typeof currentWeapon !== "undefined") ? currentWeapon : 0;
+          if (w === 1) { // 산탄총 — 묵직한 붐
+            fxNoise({ dur: 0.16, vol: 0.30, type: "lowpass", freq: 900, q: 0.7, f1: 260 });
+            fxNoise({ dur: 0.05, vol: 0.22, type: "highpass", freq: 3600, q: 0.6 });
+            fxThump(150, 46, 0.20, 0.34);
+          } else if (w === 5) { // 저격총 — 크고 드라마틱한 크랙 + 긴 테일
+            fxNoise({ dur: 0.05, vol: 0.34, type: "highpass", freq: 4200, q: 0.5 });
+            fxNoise({ dur: 0.30, vol: 0.18, type: "bandpass", freq: 1400, q: 0.8, f1: 300 });
+            fxThump(220, 42, 0.34, 0.32);
+            fxTone({ type: "sawtooth", f0: 900, f1: 120, dur: 0.14, vol: 0.12 });
+          } else if (w === 2) { // 마취총 — 전기 지직
+            fxTone({ type: "square", f0: 1400 * R, f1: 320, dur: 0.12, vol: 0.10 });
+            fxNoise({ dur: 0.12, vol: 0.10, type: "highpass", freq: 2600, q: 1.5 });
+            fxTone({ type: "sawtooth", f0: 620, f1: 1500, dur: 0.08, vol: 0.06 });
+          } else if (w === 4) { // 권총 — 스냅
+            fxNoise({ dur: 0.06, vol: 0.22, type: "bandpass", freq: 2000 * R, q: 0.9 });
+            fxThump(120, 50, 0.09, 0.16);
+          } else if (w === 6) { // 대구경 권총 — 깊은 붐
+            fxNoise({ dur: 0.10, vol: 0.26, type: "lowpass", freq: 1400, q: 0.8, f1: 320 });
+            fxThump(180, 44, 0.16, 0.30);
+          } else { // 소총(0) — 타이트한 크랙
+            fxNoise({ dur: 0.07, vol: 0.24, type: "bandpass", freq: 1900 * R, q: 0.9 });
+            fxNoise({ dur: 0.04, vol: 0.12, type: "highpass", freq: 3400 * R, q: 0.8 });
+            fxThump(140, 54, 0.09, 0.16);
+          }
+          return true;
+        }
+        case "enemyGun": {
+          fxNoise({ dur: 0.08, vol: 0.14, type: "bandpass", freq: 1150 * R, q: 1.0 });
+          fxThump(110 * R, 44, 0.10, 0.09);
+          return true;
+        }
+        case "flamer": { // 범용 폭발 (수류탄/박격포 기본)
+          fxNoise({ dur: 0.38, vol: 0.26, type: "lowpass", freq: 640, q: 0.7, f1: 140 });
+          fxNoise({ dur: 0.10, vol: 0.16, type: "highpass", freq: 2400, q: 0.5 });
+          fxThump(120, 34, 0.42, 0.36);
+          return true;
+        }
+        case "death": {
+          fxNoise({ dur: 0.20, vol: 0.10, type: "bandpass", freq: 500, q: 1.4 });
+          fxTone({ type: "triangle", f0: 260 * R, f1: 60, dur: 0.34, vol: 0.13 });
+          return true;
+        }
+        // ── 스킬 ──
+        case "skill_vulcan": { // HAWK: 발칸포 스핀업
+          fxTone({ type: "sawtooth", f0: 180, f1: 720, dur: 0.5, vol: 0.14 });
+          fxTone({ type: "square", f0: 90, f1: 260, dur: 0.5, vol: 0.10 });
+          fxNoise({ dur: 0.5, vol: 0.08, type: "bandpass", freq: 1200, q: 0.6, f1: 2400 });
+          return true;
+        }
+        case "skill_homing": { // BULL: 유도미사일 락온+발사
+          fxTone({ type: "square", f0: 880, f1: 1320, dur: 0.18, vol: 0.10 });
+          fxTone({ type: "sawtooth", f0: 300, f1: 90, dur: 0.4, vol: 0.14 });
+          fxNoise({ dur: 0.4, vol: 0.14, type: "lowpass", freq: 800, q: 0.6, f1: 200 });
+          return true;
+        }
+        case "skill_drone": { // VIPER: 드론 스트라이크 전개
+          fxTone({ type: "sine", f0: 1200, f1: 2000, dur: 0.25, vol: 0.10 });
+          fxTone({ type: "square", f0: 400, f1: 700, dur: 0.3, vol: 0.08 });
+          fxNoise({ dur: 0.3, vol: 0.06, type: "highpass", freq: 3000, q: 1.0 });
+          return true;
+        }
+        case "skill_stun": { // MEDIC: 마취 오라 방출
+          fxTone({ type: "sine", f0: 300, f1: 1400, dur: 0.4, vol: 0.13 });
+          fxTone({ type: "triangle", f0: 900, f1: 1800, dur: 0.35, vol: 0.08, delay: 0.05 });
+          fxNoise({ dur: 0.4, vol: 0.06, type: "bandpass", freq: 2200, q: 2.0 });
+          return true;
+        }
+        case "laser_zap": { // 드론 레이저 발사
+          fxTone({ type: "sawtooth", f0: 1800, f1: 300, dur: 0.18, vol: 0.12 });
+          fxNoise({ dur: 0.1, vol: 0.08, type: "highpass", freq: 3200, q: 0.8 });
+          return true;
+        }
+        // ── 폭발 강도별 ──
+        case "explosion_big": { // 박격포
+          fxNoise({ dur: 0.5, vol: 0.30, type: "lowpass", freq: 700, q: 0.7, f1: 110 });
+          fxNoise({ dur: 0.14, vol: 0.20, type: "highpass", freq: 2200, q: 0.5 });
+          fxThump(150, 30, 0.55, 0.40);
+          return true;
+        }
+        case "explosion_huge": { // VIPER 대형 미사일
+          fxNoise({ dur: 0.8, vol: 0.34, type: "lowpass", freq: 620, q: 0.7, f1: 80 });
+          fxNoise({ dur: 0.2, vol: 0.22, type: "highpass", freq: 1800, q: 0.4 });
+          fxThump(180, 24, 0.9, 0.46);
+          fxThump(70, 30, 0.7, 0.30);
+          return true;
+        }
+        case "c4_place": {
+          fxTone({ type: "square", f0: 1200, f1: 1600, dur: 0.05, vol: 0.08 });
+          fxTone({ type: "sine", f0: 600, f1: 900, dur: 0.08, vol: 0.06, delay: 0.05 });
+          return true;
+        }
+        case "c4_boom": {
+          fxNoise({ dur: 0.6, vol: 0.32, type: "lowpass", freq: 800, q: 0.7, f1: 90 });
+          fxThump(160, 26, 0.6, 0.42);
+          return true;
+        }
+        // ── 이벤트 ──
+        case "pickup": {
+          fxTone({ type: "sine", f0: 880, f1: 1320, dur: 0.12, vol: 0.10 });
+          fxTone({ type: "triangle", f0: 1320, f1: 1760, dur: 0.14, vol: 0.06, delay: 0.06 });
+          return true;
+        }
+        case "powerup": { // 상승 아르페지오
+          [523, 659, 784, 1047].forEach((f, i) => fxTone({ type: "triangle", f0: f, f1: f, dur: 0.16, vol: 0.10, delay: i * 0.06 }));
+          fxTone({ type: "sine", f0: 130, f1: 130, dur: 0.4, vol: 0.10 });
+          return true;
+        }
+        case "killstreak": { // 킬 스트릭 스팅어
+          [392, 523, 659, 880].forEach((f, i) => fxTone({ type: "square", f0: f, f1: f, dur: 0.12, vol: 0.09, delay: i * 0.05 }));
+          return true;
+        }
+        case "reload": {
+          fxNoise({ dur: 0.05, vol: 0.10, type: "bandpass", freq: 1800, q: 2.0 });
+          fxNoise({ dur: 0.05, vol: 0.10, type: "bandpass", freq: 1200, q: 2.0, delay: 0.12 });
+          return true;
+        }
+        case "objective": {
+          fxTone({ type: "sawtooth", f0: 200, f1: 400, dur: 0.5, vol: 0.12 });
+          fxTone({ type: "square", f0: 600, f1: 900, dur: 0.4, vol: 0.06, delay: 0.1 });
+          return true;
+        }
+        case "victory": {
+          [523, 659, 784, 1047, 1319].forEach((f, i) => fxTone({ type: "triangle", f0: f, f1: f, dur: 0.3, vol: 0.12, delay: i * 0.12 }));
+          fxTone({ type: "sine", f0: 131, f1: 131, dur: 1.2, vol: 0.10 });
+          return true;
+        }
+        case "defeat": {
+          [440, 392, 330, 262].forEach((f, i) => fxTone({ type: "triangle", f0: f, f1: f, dur: 0.4, vol: 0.11, delay: i * 0.16 }));
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 편의 래퍼 — 새 이름들은 항상 리치 엔진으로
+    function playFx(name, rate = 1) {
+      unlockAudio();
+      if (!playRichSfx(name, rate) && audioCtx) {
+        // audioCtx가 준비 안됐으면 다음 프레임 재시도
+        if (audioCtx.state === "suspended" && audioCtx.resume) audioCtx.resume().then(() => playRichSfx(name, rate)).catch(() => {});
+      }
+    }
+
+    // 오프닝 스팅어 — 인트로 시작 시 극적인 상승 스윕 + 임팩트
+    function playOpeningStinger() {
+      if (!audioCtx) return;
+      // 상승 스윕
+      fxTone({ type: "sawtooth", f0: 80, f1: 520, dur: 1.1, vol: 0.12 });
+      fxTone({ type: "square", f0: 55, f1: 220, dur: 1.1, vol: 0.08 });
+      fxNoise({ dur: 1.1, vol: 0.05, type: "highpass", freq: 1200, q: 0.5, f1: 6000 });
+      // 임팩트 (1.0s 지점)
+      fxThump(160, 40, 0.7, 0.42, );
+      fxNoise({ dur: 0.5, vol: 0.20, type: "lowpass", freq: 900, q: 0.7, f1: 120, delay: 1.0 });
+      // 파워 코드 (D단)
+      [146.83, 220, 293.66].forEach((f) => fxTone({ type: "sawtooth", f0: f, f1: f, dur: 1.4, vol: 0.07, delay: 1.0 }));
+      [587.33, 880].forEach((f) => fxTone({ type: "triangle", f0: f, f1: f, dur: 1.2, vol: 0.05, delay: 1.05 }));
     }
 
     function afterAudioResume(callback) {
@@ -879,6 +1097,12 @@
       }
     }
 
+    // ═══ 동적 배경음악 ═══
+    // 지속 드론(베이스+패드) + 16스텝 시퀀서(베이스라인·아르페지오·하이햇·킥).
+    // 팀배틀에서는 bgmIntensity가 올라가 드럼/아르페지오가 강해진다.
+    let bgmStep = 0;
+    let bgmIntensity = 0;         // 0(메뉴/클래식) ~ 1(팀배틀 교전)
+    let tbWonSoundPlayed = false; // 승/패 스팅어 1회 재생 플래그
     function startNoirBgm() {
       if (!audioCtx) {
         const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -889,50 +1113,68 @@
         audioCtx.resume().then(() => startNoirBgm()).catch(() => {});
         return;
       }
-      if (noirGain) {
-        if (!noirPulseTimer) startNoirPulse();
-        return;
-      }
+      if (noirGain) { if (!noirPulseTimer) startBgmSequencer(); return; }
+      // 지속 드론 패드 (낮게 깔리는 앰비언스)
       noirGain = audioCtx.createGain();
-      noirGain.gain.setValueAtTime(0.07, audioCtx.currentTime);
-      noirGain.connect(audioCtx.destination);
-      const notes = [55, 82.41, 110];
-      for (const [i, freq] of notes.entries()) {
+      noirGain.gain.setValueAtTime(0.055, audioCtx.currentTime);
+      noirGain.connect(getMaster() || audioCtx.destination);
+      const drone = [55, 82.41, 110, 164.81];
+      for (const [i, freq] of drone.entries()) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
+        const lfo = audioCtx.createOscillator();
+        const lfoGain = audioCtx.createGain();
         osc.type = i === 0 ? "sine" : "triangle";
         osc.frequency.value = freq;
-        gain.gain.value = i === 0 ? 0.56 : 0.18;
-        osc.connect(gain);
-        gain.connect(noirGain);
-        osc.start();
+        gain.gain.value = i === 0 ? 0.5 : 0.13;
+        // 느린 비브라토로 살아있는 패드
+        lfo.frequency.value = 0.08 + i * 0.03;
+        lfoGain.gain.value = freq * 0.006;
+        lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+        osc.connect(gain); gain.connect(noirGain);
+        osc.start(); lfo.start();
       }
-      startNoirPulse();
+      startBgmSequencer();
     }
 
-    function startNoirPulse() {
+    // 16스텝 시퀀서 (약 105 BPM → 스텝당 ~143ms)
+    function startBgmSequencer() {
       if (noirPulseTimer || !audioCtx) return;
-      const pulse = () => {
+      const bass = [55, 0, 55, 82.41, 0, 55, 0, 73.42, 55, 0, 55, 82.41, 0, 98, 0, 82.41]; // D 마이너 워킹 베이스
+      const arp  = [220, 261.63, 329.63, 261.63, 220, 329.63, 392, 329.63]; // Dm 아르페지오
+      const step = () => {
         if (!audioCtx || audioCtx.state === "suspended") return;
-        if (isMobile) {
-          playNoiseLayer({ duration: 0.42, volume: 0.018, type: "lowpass", frequency: 360, q: 0.5 });
+        const s = bgmStep % 16;
+        const I = bgmIntensity;
+        // 베이스라인
+        const bf = bass[s];
+        if (bf > 0) fxTone({ type: "sawtooth", f0: bf, f1: bf, dur: 0.16, vol: 0.06 + 0.03 * I });
+        // 킥 (강박)
+        if (s % 4 === 0) fxThump(120, 42, 0.16, 0.10 + 0.14 * I);
+        // 하이햇 (교전 강도에 따라)
+        if (I > 0.15 && s % 2 === 1) fxNoise({ dur: 0.04, vol: 0.02 + 0.05 * I, type: "highpass", freq: 7000, q: 0.7 });
+        // 스네어 (백비트, 팀배틀)
+        if (I > 0.4 && (s === 4 || s === 12)) fxNoise({ dur: 0.12, vol: 0.06 * I, type: "bandpass", freq: 1800, q: 0.8 });
+        // 아르페지오 (교전 시)
+        if (I > 0.25 && s % 2 === 0) {
+          const af = arp[(bgmStep >> 1) % arp.length];
+          fxTone({ type: "triangle", f0: af, f1: af, dur: 0.14, vol: 0.03 + 0.04 * I });
         }
-        const now = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(146.83, now);
-        osc.frequency.exponentialRampToValueAtTime(98, now + 0.42);
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.045, now + 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.58);
+        bgmStep++;
       };
-      pulse();
-      noirPulseTimer = setInterval(pulse, 4200);
+      step();
+      noirPulseTimer = setInterval(step, 143);
+    }
+
+    // 매 프레임 목표 강도로 부드럽게 수렴 (update에서 호출)
+    function updateBgmIntensity(dt) {
+      let target = 0;
+      if (gameMode === "teambattle" && state === "play") {
+        target = isCinematic ? 0.35 : 0.85;
+      } else if (state === "play") {
+        target = 0.4;
+      }
+      bgmIntensity += (target - bgmIntensity) * Math.min(1, dt * 1.5);
     }
 
     function resetWorld() {
@@ -1680,6 +1922,7 @@
           return;
         }
         c4List.push({ x: tx, y: ty, r: 11, placed: true });
+        playFx("c4_place");
         speechBubbles.push({ x: player.x, y: player.y - 38, text: `C4 SET [${c4List.length}/3]`, life: 0.8, maxLife: 0.8, screen: true });
         return;
       }
@@ -1694,6 +1937,7 @@
 
     function detonateC4() {
       if (c4List.length === 0) return;
+      playFx("c4_boom");
       for (const c4 of c4List) explodeBomb({ x: c4.x, y: c4.y, hostile: false });
       c4List.length = 0;
       c4AimShakeCount = 0;
@@ -1721,6 +1965,7 @@
           }
         }
         skillEnergy = 0;
+        playFx("skill_stun");
         speechBubbles.push({ x: player.x, y: player.y - 40, text: "STUN AURA!", life: 1.5, maxLife: 1.5, screen: true });
       } else if (st === "homing_missiles") {
         // BULL: 유도 미사일 6발 — 플레이어 주변 궤도 공전 후 적 추적
@@ -1741,6 +1986,7 @@
           });
         }
         shake = Math.max(shake, 4);
+        playFx("skill_homing");
         speechBubbles.push({ text: "LOCK ON!", life: 1.2, maxLife: 1.2, screen: true });
       } else if (st === "drone_laser") {
         // VIPER: 캐릭터 등뒤 → 가까운 적 4명 머리 위로 순차 비행 → 레이저
@@ -1769,11 +2015,13 @@
           });
         });
         shake = Math.max(shake, 5);
+        playFx("skill_drone");
         speechBubbles.push({ text: "DRONE STRIKE!", life: 1.2, maxLife: 1.2, screen: true });
       } else {
         // HAWK: 발칸포 스킬
         skillActive = true; skillTimer = 3.0; shootCooldown = 0;
         skillEnergy = 0;
+        playFx("skill_vulcan");
       }
     }
 
@@ -1798,7 +2046,7 @@
       const radius = 440;
       if (pointInsideSolid(x, y)) { addFizzle(x, y); return; }
       addBlastLight(x, y, radius);
-      playSfx("flamer", 0.8);
+      playFx("explosion_big");
       burstVisible(x, y, "#ffe880", 28, radius);
       const mortarAllTargets = [...enemies,
         ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
@@ -1807,7 +2055,7 @@
         if (d <= radius && hasExplosionLineOfSight(x, y, enemy.x, enemy.y, d)) {
           const dmgM = (360 * (1 - d / radius) + 180) * (rageActive ? 2 : 1);
           enemy.hp -= dmgM;
-          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; if (enemy.respawnTimer !== undefined) enemy.respawnTimer = 10; }
           skillEnergy = Math.min(1, skillEnergy + dmgM / 1000);
           burst(enemy.x, enemy.y, "#ffcc44", 6);
         }
@@ -1820,7 +2068,7 @@
       const radius = 1100;
       if (pointInsideSolid(x, y)) x = clamp(x, 50, world.w - 50), y = clamp(y, 50, world.h - 50);
       addBlastLight(x, y, radius);
-      playSfx("flamer", 1.2);
+      playFx("explosion_huge");
       burstVisible(x, y, "#40c8ff", 60, radius);
       const missileAllTargets = [...enemies,
         ...(gameMode === "teambattle" ? aiPlayers.filter(a => a.alive && a.team !== playerTeam) : [])];
@@ -1829,7 +2077,7 @@
         if (d <= radius && hasExplosionLineOfSight(x, y, enemy.x, enemy.y, d)) {
           const dmgMi = (2340 * (1 - d / radius) + 1170) * (rageActive ? 2 : 1);
           enemy.hp -= dmgMi;
-          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; if (enemy.respawnTimer !== undefined) enemy.respawnTimer = 10; }
           skillEnergy = Math.min(1, skillEnergy + dmgMi / 1000);
           burst(enemy.x, enemy.y, "#80e8ff", 10);
         }
@@ -1895,7 +2143,7 @@
         if (d <= radius && hasExplosionLineOfSight(bomb.x, bomb.y, enemy.x, enemy.y, d)) {
           const dmgB = 180 * (1 - d / radius) + 90;
           enemy.hp -= dmgB;
-          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; }
+          if (enemy.alive !== undefined && enemy.hp <= 0) { enemy.hp = 0; enemy.alive = false; if (enemy.respawnTimer !== undefined) enemy.respawnTimer = 10; }
           skillEnergy = Math.min(1, skillEnergy + dmgB / 1000);
           burst(enemy.x, enemy.y, "#d8e8ff", 6);
         }
@@ -2145,6 +2393,7 @@
     }
 
     function update(dt) {
+      updateBgmIntensity(dt);
       if (state === "intro") {
         if (!introStarted) return;
         introTimer += dt;
@@ -2371,6 +2620,7 @@
               player.buffTimer = 15.0;
               floatingTexts.push({ text: "⚡ POWER UP! +25% DMG 15s", x: neutralObj.x, y: neutralObj.y - 50, vy: -25, life: 2.5, maxLife: 2.5, size: 16, color: "#FFD700", screen: false });
               burst(neutralObj.x, neutralObj.y, "#FFD700", 35);
+              playFx("objective");
               shake = Math.max(shake, 8);
             }
           } else {
@@ -2425,8 +2675,8 @@
             const ox = hawkSx + perpX * off, oy = hawkSy + perpY * off;
             const hawkHit = raycastShot(ox, oy, hawkDx, hawkDy, 1200);
             tracers.push({ x1: ox, y1: oy, x2: hawkHit.x, y2: hawkHit.y, life: 0.07, maxLife: 0.07 });
-            if (hawkHit.enemy) { hawkHit.enemy.hp -= 15; burst(hawkHit.x, hawkHit.y, "#9f2a24", 3); skillEnergy = Math.min(1, skillEnergy + 0.04); }
-            else if (gameMode === "teambattle") applyTBHit(hawkHit, 15);
+            if (hawkHit.enemy) { hawkHit.enemy.hp -= 9; burst(hawkHit.x, hawkHit.y, "#9f2a24", 3); skillEnergy = Math.min(1, skillEnergy + 0.04); }
+            else if (gameMode === "teambattle") applyTBHit(hawkHit, 9);
             else if (hawkHit.solid) burst(hawkHit.x, hawkHit.y, "#f4efe8", 2);
           }
           flashes.push({ x: hawkSx + hawkDx * 20, y: hawkSy + hawkDy * 20, angle: player.angle, life: 0.06, maxLife: 0.06 });
@@ -2693,7 +2943,7 @@
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
               const dmgH = 195 * (rageActive ? 2 : 1);
               e.hp -= dmgH;
-              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
+              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; if (e.respawnTimer !== undefined) e.respawnTimer = 10; }
               skillEnergy = Math.min(1, skillEnergy + dmgH / 1000);
               burst(hm.x, hm.y, "#ff8800", 10);
               burst(hm.x, hm.y, "#ffdd00", 7);
@@ -2737,7 +2987,7 @@
             if (Math.hypot(e.x - hm.x, e.y - hm.y) < (e.r || 22) + 4) {
               const dmgHM = 195 * (rageActive ? 2 : 1);
               e.hp -= dmgHM;
-              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; }
+              if (e.alive !== undefined && e.hp <= 0) { e.hp = 0; e.alive = false; if (e.respawnTimer !== undefined) e.respawnTimer = 10; }
               skillEnergy = Math.min(1, skillEnergy + dmgHM / 1000);
               burst(hm.x, hm.y, "#ff8800", 10);
               burst(hm.x, hm.y, "#ffdd00", 7);
@@ -2947,6 +3197,11 @@
           checkTeamBattleWin();
         }
         updateConvoy(dt);
+        // 승/패 확정 시 스팅어 1회
+        if (teamBattleWon !== null && !tbWonSoundPlayed) {
+          tbWonSoundPlayed = true;
+          playFx(teamBattleWon === "win" ? "victory" : "defeat");
+        }
         if (tbOnlineMode) {
           if (mp.role === "tbhost") {
             updateTBNetPlayers(dt);
@@ -3049,6 +3304,7 @@
       introStarted = true;
       introTimer = 0;
       introSoundStarted = false;
+      playOpeningStinger();
       playParkLogoSound();
       introSoundStarted = true;
     }
@@ -3106,19 +3362,23 @@
         if (dist2(player.x, player.y, p.x, p.y) < (player.r + p.r) * (player.r + p.r)) {
           if (p.type === "speed") {
             player.speedBoostTimer = 8;
+            playFx("powerup");
             floatingTexts.push({ text: "⚡ SPEED UP!", x: p.x, y: p.y - 40, vy: -30, life: 1.5, maxLife: 1.5, size: 15, color: "#44bbff", screen: false });
             burst(p.x, p.y, "#44bbff", 12);
           } else if (p.type === "energy") {
             skillEnergy = Math.min(1, skillEnergy + 0.5);
             skillBarFlash = 1;
+            playFx("powerup");
             floatingTexts.push({ text: "⚡ ENERGY +50%", x: p.x, y: p.y - 40, vy: -30, life: 1.5, maxLife: 1.5, size: 15, color: "#cc66ff", screen: false });
             burst(p.x, p.y, "#cc66ff", 12);
           } else if (p.type === "shield") {
             player.shieldTimer = 8;
+            playFx("powerup");
             floatingTexts.push({ text: "🛡 SHIELD!", x: p.x, y: p.y - 40, vy: -30, life: 1.5, maxLife: 1.5, size: 15, color: "#33ffee", screen: false });
             burst(p.x, p.y, "#33ffee", 12);
           } else {
             const mhp = gameMode==="teambattle" ? playerChar.tbHp : Math.round(100*playerChar.hpMult); player.hp = Math.min(mhp, player.hp + Math.round(mhp*0.2));
+            playFx("pickup");
             burst(p.x, p.y, "#8edc8f", 10);
           }
           pickups.splice(i, 1);
@@ -9544,9 +9804,9 @@
       player.hp = playerChar.tbHp;
       // 금고(Vault)로 재정의 — facilities 완전 교체 (상/중 레인 사이, 기지 안쪽)
       facilities.length=0;
-      facilities.push({ x:L.blueVaultCX-60, y:L.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:0,
+      facilities.push({ x:L.blueVaultCX-60, y:L.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:0,
         isVault:true, destroyed:false, destroyerTeam:null, glowPhase:0 });
-      facilities.push({ x:L.redVaultCX-60, y:L.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:1,
+      facilities.push({ x:L.redVaultCX-60, y:L.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:1,
         isVault:true, destroyed:false, destroyerTeam:null, glowPhase:Math.PI });
       // 리스폰 플랫폼, 터렛, convoy 초기화
       spawnPlatforms = [
@@ -9574,7 +9834,7 @@
       convoyWheelAngle = 0;
       confettiParticles = [];
       vaultMissionResult = null;
-      teamBattleWon=null; tbTimer=0; playerRespawnTimer=0; tbKills=[0,0];
+      teamBattleWon=null; tbTimer=0; playerRespawnTimer=0; tbKills=[0,0]; tbWonSoundPlayed=false;
       setupAiPlayers();
       setupCrates();
       enemies.length=0;
@@ -9586,7 +9846,7 @@
       // 팀당 3기: 금고 위/아래 근접 방어 2기 + 하단 레인(금고 반대편 약점) 커버 1기.
       // 수량이 늘어난 대신 단발 데미지 42→28로 하향, HP 400→450 (여러 기를 순서대로 파괴하는 재미)
       function mkTurret(x, y, team, angle) {
-        return { x, y, team, hp:450, maxHp:450, angle, shootCd:0, alive:true, range:560, dmg:28, hitFlash:0, r:22, fireFlash:0 };
+        return { x, y, team, hp:450, maxHp:450, angle, shootCd:0, alive:true, range:560, dmg:39, hitFlash:0, r:22, fireFlash:0 };
       }
       turrets = [
         mkTurret(L.blueVaultCX, L.vaultCY-220, 0, Math.PI/2),
@@ -12462,9 +12722,9 @@
 
       // 시설물 & 초기 배치
       facilities.length = 0;
-      facilities.push({ x:L1.blueVaultCX-60, y:L1.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:0,
+      facilities.push({ x:L1.blueVaultCX-60, y:L1.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:0,
         isVault:true, destroyed:false, destroyerTeam:null, glowPhase:0 });
-      facilities.push({ x:L1.redVaultCX-60, y:L1.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:1,
+      facilities.push({ x:L1.redVaultCX-60, y:L1.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:1,
         isVault:true, destroyed:false, destroyerTeam:null, glowPhase:Math.PI });
       spawnPlatforms = [
         { x:L1.blueSpawnCX, y:L1.laneMidY, r:110, team:0, glowPhase:0 },
@@ -12575,9 +12835,9 @@
       facilities.length = 0;
       if (d.facilities) d.facilities.forEach(f => facilities.push({...f}));
       else {
-        facilities.push({ x:L2.blueVaultCX-60, y:L2.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:0,
+        facilities.push({ x:L2.blueVaultCX-60, y:L2.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:0,
           isVault:true, destroyed:false, destroyerTeam:null, glowPhase:0 });
-        facilities.push({ x:L2.redVaultCX-60, y:L2.vaultCY-100, w:120, h:200, hp:3000, maxHp:3000, team:1,
+        facilities.push({ x:L2.redVaultCX-60, y:L2.vaultCY-100, w:120, h:200, hp:4500, maxHp:4500, team:1,
           isVault:true, destroyed:false, destroyerTeam:null, glowPhase:Math.PI });
       }
       spawnPlatforms = [
