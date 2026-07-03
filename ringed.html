@@ -1849,12 +1849,12 @@
         const hitS = raycastShot(sx, sy, dx, dy, 1960);
         tracers.push({ x1: sx, y1: sy, x2: hitS.x, y2: hitS.y, life: 0.18, maxLife: 0.18 });
         if (hitS.enemy) {
-          const dmg = 188 * (rageActive ? 2 : 1);
+          const dmg = 282 * (rageActive ? 2 : 1);
           hitS.enemy.hp -= dmg;
           burst(hitS.x, hitS.y, "#ff4000", 10);
           skillEnergy = Math.min(1, skillEnergy + 0.5);
         } else if (hitS.solid) { burst(hitS.x, hitS.y, "#f4efe8", 6); hitWallCorner(hitS.x, hitS.y, 0.5, 50); }
-        else applyTBHit(hitS, 188 * (rageActive ? 2 : 1));
+        else applyTBHit(hitS, 282 * (rageActive ? 2 : 1));
         flashes.push({ x: sx + dx * 22, y: sy + dy * 22, angle: player.angle, life: 0.12, maxLife: 0.12 });
         shake = Math.max(shake, 6); recoilAmt = 1.5;
       } else if (currentWeapon === 6) {
@@ -1892,7 +1892,7 @@
       player.angle = Math.atan2(pdy, pdx);
       shake = Math.max(shake, 6); recoilAmt = 1.5;
       if (hit.enemy) {
-        const dmg = 188 * (rageActive ? 2 : 1);
+        const dmg = 282 * (rageActive ? 2 : 1);
         hit.enemy.hp -= dmg;
         burst(hit.x, hit.y, "#ff4000", 10);
         skillEnergy = Math.min(1, skillEnergy + 0.5);
@@ -1901,7 +1901,7 @@
         burst(hit.x, hit.y, "#f4efe8", 6); hitWallCorner(hit.x, hit.y, 0.5, 50);
         speechBubbles.push({ text: "MISS", life: 0.9, maxLife: 0.9, screen: true });
       } else {
-        applyTBHit(hit, 188 * (rageActive ? 2 : 1));
+        applyTBHit(hit, 282 * (rageActive ? 2 : 1));
         speechBubbles.push({ text: hit.aiPlayer || hit.facility || hit.crate ? "HIT!" : "MISS", life: 0.9, maxLife: 0.9, screen: true });
       }
     }
@@ -8921,11 +8921,14 @@
       mobileControls.aimTouchY = y;
       mobileControls.aimAtEdge = (dragDist >= maxDrag * 0.72);
 
-      // VIPER 저격총: 조준 중 목표 위치 실시간 저장
-      if (currentWeapon === 5 && playerChar && playerChar.id === 2 && deflection > 0) {
+      // VIPER 저격총: 조준 중 목표 위치 실시간 저장 — 큰 원(edge) 도달과 무관하게
+      // AIM 터치를 놓기만 하면 발사되도록, 드래그가 없어도(deadzone 이내) 항상 조준 준비 상태로 둔다.
+      // 드래그가 있으면 그 방향, 없으면 현재 바라보는 방향(dirX/dirY는 deadzone일 때 player.angle로 대체됨).
+      if (currentWeapon === 5 && playerChar && playerChar.id === 2) {
         const maxWorldRadius = Math.min(width, height) * 0.38 / camera.zoom * 2.5;
-        sniperAimTx = player.x + dirX * deflection * maxWorldRadius;
-        sniperAimTy = player.y + dirY * deflection * maxWorldRadius;
+        const defl = Math.max(deflection, 0.45); // 최소 조준 거리 보장 (탭만 해도 유효 타겟)
+        sniperAimTx = player.x + dirX * defl * maxWorldRadius;
+        sniperAimTy = player.y + dirY * defl * maxWorldRadius;
         sniperAimReady = true;
       }
     }
