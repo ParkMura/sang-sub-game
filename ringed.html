@@ -8198,8 +8198,9 @@
     }
 
     function drawMinimap() {
-      const mw = 110, mh = 80;
-      const mx = width - mw - 12, my = 12;
+      const mw = 140, mh = 100;  // 살짝 키움 (110x80 → 140x100)
+      // 팀배틀에서는 상단 HUD 패널(그라데이션) 아래로 내려 지도가 안 가려지게
+      const mx = width - mw - 12, my = (gameMode === "teambattle") ? 60 : 12;
       const scaleX = mw / world.w, scaleY = mh / world.h;
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -8484,24 +8485,31 @@
     }
 
     function mobileButtonRects() {
-      const base = Math.min(66, Math.max(54, width * 0.12));
+      const base = Math.min(66, Math.max(54, width * 0.12)) * 0.9; // 무기/액션 버튼 10% 축소
       const gap = Math.max(12, base * 0.18);
       const safeRight = 22;
       const attackRBase = Math.min(70, Math.max(62, width * 0.126));
       const attackR = (playerChar && playerChar.id === 1) ? attackRBase * 0.8 : attackRBase * 0.95;
-      const attackY = height - 112;
+      const stickY = height - 112;
+      // 좌우 스왑: 이동 조이스틱=우측, AIM 조이스틱=좌측
+      const moveStickX = width - 88;   // 이동 (우측 하단)
+      const aimStickX = 88;            // AIM (좌측 하단)
+      // 액션 버튼 클러스터: 우측(이동 조이스틱과 같은 손), 이동 조이스틱 바로 위 + 10% 작게 + 살짝 아래
       const actionX = width - safeRight - base;
+      const rightStickTop = stickY - 58;                 // 우측 이동 조이스틱 상단
+      const r1y = rightStickTop - base - 6;              // 아래 버튼 행 (조이스틱 바로 위)
+      const r2y = r1y - gap - base;                       // 위 버튼 행
       const weaponNames = { 0:"소총", 1:"산탄총", 2:"마취총", 4:"권총", 5:"저격총", 6:"대구경" };
       const bombLabel = playerChar.bombType === "c4"
         ? (c4List.length > 0 ? `C4 [${c4List.length}]` : "C4")
         : (currentWeapon === 3 ? "BOMB ON" : "BOMB");
       return {
-        stick: { x: 88, y: height - 112, r: 58 },
-        attack: { x: width - 88, y: attackY, r: attackR },
-        bomb: { id: "bomb", label: bombLabel, x: actionX, y: attackY - attackR - gap - base, w: base, h: base },
-        detonate: { id: "detonate", label: "BOOM!", x: actionX - base - gap, y: attackY - attackR - gap * 2 - base * 2, w: base, h: base },
-        dodge: { id: "dodge", label: "DASH", x: actionX, y: attackY - attackR - gap * 2 - base * 2, w: base, h: base },
-        swap: { id: "swap", label: weaponNames[currentWeapon] || "SWAP", x: actionX - base - gap, y: attackY - attackR - gap - base, w: base, h: base }
+        stick: { x: moveStickX, y: stickY, r: 58 },
+        attack: { x: aimStickX, y: stickY, r: attackR },
+        bomb: { id: "bomb", label: bombLabel, x: actionX, y: r1y, w: base, h: base },
+        detonate: { id: "detonate", label: "BOOM!", x: actionX - base - gap, y: r2y, w: base, h: base },
+        dodge: { id: "dodge", label: "DASH", x: actionX, y: r2y, w: base, h: base },
+        swap: { id: "swap", label: weaponNames[currentWeapon] || "SWAP", x: actionX - base - gap, y: r1y, w: base, h: base }
       };
     }
 
@@ -8798,10 +8806,10 @@
           return;
         } else if (handleSpecialForcesToggleClick(p.x, p.y)) {
           return;
-        } else if (p.x < width * 0.46 && mobileControls.moveId === null) {
+        } else if (p.x > width * 0.54 && mobileControls.moveId === null) {
           mobileControls.moveId = touch.identifier;
           updateMobileStick(p.x, p.y);
-        } else if (p.x > width * 0.54 && mobileControls.aimId === null) {
+        } else if (p.x < width * 0.46 && mobileControls.aimId === null) {
           mobileControls.aimId = touch.identifier;
           mobileControls.shoot = true;
           mobileControls.aimAnchorX = p.x;
@@ -12480,8 +12488,8 @@
       const now=performance.now()*0.001, cx=width/2;
       const blue=facilities.find(f=>f.team===0), red=facilities.find(f=>f.team===1);
 
-      // ── 상단 HUD 패널 배경 ──
-      const panelH = 44;
+      // ── 상단 HUD 패널 배경 ── (참여인원 아이콘을 바 아래에 담도록 높이 확대 44→54)
+      const panelH = 54;
       ctx.fillStyle="rgba(0,0,0,0.72)";
       ctx.fillRect(0, 0, width, panelH);
       ctx.strokeStyle="rgba(255,255,255,0.08)";
@@ -12575,12 +12583,10 @@
         }
       }
 
-      // BLUE 아이콘: 기지바 왼쪽에 세로 배치
-      const biconX = bx - 24;
-      blueMembers.forEach((m, i) => drawMemberIcon(biconX, 22 + i * 20, m.alive, m.respawning, m.timer, m.isPlayer, "#3366ff"));
-      // RED 아이콘: 기지바 오른쪽
-      const riconX = rx + barW + 24;
-      redMembers.forEach((m, i) => drawMemberIcon(riconX, 22 + i * 20, m.alive, m.respawning, m.timer, m.isPlayer, "#ff3333"));
+      // 참여인원 아이콘 — 각 기지 HP바 "아래"에 가로로 정렬 (게임 진행정보 확인 편의)
+      const iconRowY = 43, iconStep = 17;
+      blueMembers.forEach((m, i) => drawMemberIcon(bx + 8 + i * iconStep, iconRowY, m.alive, m.respawning, m.timer, m.isPlayer, "#3366ff"));
+      redMembers.forEach((m, i) => drawMemberIcon(rx + 8 + i * iconStep, iconRowY, m.alive, m.respawning, m.timer, m.isPlayer, "#ff3333"));
       // convoy HP 바 (convoy 있을 때만)
       if (convoy && convoy.alive) {
         const convoyTeamCol = convoy.team === 0 ? "#4466ff" : "#ff4444";
