@@ -2212,7 +2212,21 @@
     }
 
     function pointInsideSolid(x, y) {
-      for (const rect of explosionBlockers()) {
+      // 벽: 깎여나간 모서리는 통과 (총알/투사체가 지나감)
+      for (const wall of walls) {
+        if (x >= wall.x && x <= wall.x + wall.w && y >= wall.y && y <= wall.y + wall.h) {
+          if (!pointInWallChip(wall, x, y)) return true;
+        }
+      }
+      for (const door of doors) {
+        if (door.open >= 0.72) continue;
+        for (const rect of doorCollisionRects(door)) {
+          if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) return true;
+        }
+      }
+      for (const prop of props) {
+        if (!propBlocksMovement(prop)) continue;
+        const rect = propCollisionRect(prop);
         if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) return true;
       }
       return false;
@@ -2228,6 +2242,39 @@
         if (pointInsideSolid(x1 + ix * i, y1 + iy * i)) return false;
       }
       return true;
+    }
+
+    // 벽 모서리 파손 크기 — 0.3 → 0.6 (기존보다 2배 크게 깎임)
+    const WALL_CHIP_FACTOR = 0.6;
+    function wallChipSize(wall) { return Math.min(wall.w, wall.h) * WALL_CHIP_FACTOR; }
+    // 점(px,py)이 벽의 "깎여나간" 모서리 삼각형 안에 있으면 true (=그 지점은 더 이상 벽이 아님)
+    function pointInWallChip(wall, px, py) {
+      const d = wallCornerDmg.get(wall);
+      if (!d) return false;
+      const cs = wallChipSize(wall);
+      const lxL = px - wall.x, lxR = wall.x + wall.w - px;
+      const lyT = py - wall.y, lyB = wall.y + wall.h - py;
+      if (d[0] >= 1 && lxL + lyT < cs) return true;  // 좌상
+      if (d[1] >= 1 && lxR + lyT < cs) return true;  // 우상
+      if (d[2] >= 1 && lxL + lyB < cs) return true;  // 좌하
+      if (d[3] >= 1 && lxR + lyB < cs) return true;  // 우하
+      return false;
+    }
+    // 벽에 대한 레이 충돌 — 깎인 모서리는 통과시킨다. 실제 벽면을 만나는 t 또는 null 반환.
+    function rayWallSolid(x, y, dx, dy, wall, curBest) {
+      const t0 = rayRect(x, y, dx, dy, wall);
+      if (t0 === null || t0 <= 0) return null;
+      const d = wallCornerDmg.get(wall);
+      if (!d || !(d[0] >= 1 || d[1] >= 1 || d[2] >= 1 || d[3] >= 1)) return t0; // 파손 없으면 빠른 경로
+      // 파손된 벽: 진입점부터 전진하며 첫 '실제 벽' 지점을 찾음. 전 구간이 깎였으면 통과(null).
+      const step = 3;
+      const limit = Math.min(curBest, t0 + Math.hypot(wall.w, wall.h) + step);
+      for (let t = t0; t <= limit; t += step) {
+        const px = x + dx * t, py = y + dy * t;
+        if (px < wall.x - 0.5 || px > wall.x + wall.w + 0.5 || py < wall.y - 0.5 || py > wall.y + wall.h + 0.5) return null;
+        if (!pointInWallChip(wall, px, py)) return t;
+      }
+      return null;
     }
 
     function hitWallCorner(hitX, hitY, dmgAmt, nearRadius) {
@@ -3533,7 +3580,7 @@
     function raycastShot(x, y, dx, dy, maxDist) {
       let best = { t: maxDist, x: x + dx * maxDist, y: y + dy * maxDist, enemy: null, solid: null };
       for (const wall of walls) {
-        const t = rayRect(x, y, dx, dy, wall);
+        const t = rayWallSolid(x, y, dx, dy, wall, best.t);
         if (t !== null && t > 0 && t < best.t) {
           best = { t, x: x + dx * t, y: y + dy * t, enemy: null, solid: wall };
         }
@@ -5604,7 +5651,7 @@
       const isH = wall.w > wall.h * 1.5;  // 가로 벽
       const isV = wall.h > wall.w * 1.5;  // 세로 벽
       const dmg = wallCornerDmg.has(wall) ? wallCornerDmg.get(wall) : null;
-      const cs = Math.min(wall.w, wall.h) * 0.3;
+      const cs = wallChipSize(wall);
 
       ctx.save();
       if (dmg) {
