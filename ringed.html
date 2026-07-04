@@ -8252,10 +8252,23 @@
       ctx.restore();
     }
 
+    // 스킬 버튼 위치 — 모바일에서는 AIM 조이스틱 바로 왼쪽 옆(엄지 닿는 곳),
+    // 데스크톱에서는 하단 중앙. 그리기/터치판정이 동일 위치를 공유하도록 통일.
+    function skillButtonRect() {
+      const bw = 84, bh = 42;
+      if (isMobile) {
+        const aim = mobileButtonRects().attack;
+        const rightEdge = aim.x - aim.r - 14;   // AIM 원 왼쪽에서 14px 간격
+        return { x: rightEdge - bw, y: aim.y - bh / 2, w: bw, h: bh };
+      }
+      return { x: width / 2 - bw / 2, y: height - 62, w: bw, h: bh };
+    }
+
     function drawSkillButton() {
       const now = performance.now() * 0.001;
-      const bx = width / 2 - 44, by = height - 62;
-      const bw = 88, bh = 42;
+      const rect = skillButtonRect();
+      const bx = rect.x, by = rect.y;
+      const bw = rect.w, bh = rect.h;
       ctx.save();
       // 발광 헤일로
       const pulse = 0.5 + Math.abs(Math.sin(now * 4)) * 0.5;
@@ -8435,8 +8448,9 @@
 
     function handleSkillButtonClick(x, y) {
       if (skillEnergy < 1 || skillActive || missileCharging) return false;
-      const bx = width / 2 - 36, by = height - 58;
-      if (x >= bx && x <= bx + 72 && y >= by && y <= by + 36) {
+      const r = skillButtonRect();
+      // 터치 여유 8px 패딩
+      if (x >= r.x - 8 && x <= r.x + r.w + 8 && y >= r.y - 8 && y <= r.y + r.h + 8) {
         activateSkill();
         return true;
       }
