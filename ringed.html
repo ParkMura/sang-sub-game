@@ -467,8 +467,12 @@
       // 첫 터치/클릭 시 풀스크린 (주소창 숨기기)
       if (!document.fullscreenElement) {
         const el = document.documentElement;
-        if (el.requestFullscreen) el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        try {
+          if (el.requestFullscreen) el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+          else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        } catch (error) {
+          console.warn("Fullscreen request failed", error);
+        }
       }
       if (audioReady) {
         if (!noirGain) startNoirBgm();
@@ -1276,7 +1280,7 @@
 
     function startGame() {
       gameMode = "classic";
-      ensureAudio();
+      try { ensureAudio(); } catch (error) { console.warn("ensureAudio failed", error); }
       resetWorld();
       state = "play";
     }
