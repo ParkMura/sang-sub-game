@@ -8504,15 +8504,19 @@
     }
 
     function mobileButtonRects() {
-      const base = Math.min(66, Math.max(54, width * 0.12)) * 0.9; // 무기/액션 버튼 10% 축소
+      // 온라인 배틀 중 분할 화면이면 버튼 좌표 기준을 화면 절반 너비로 사용
+      // (전체 width 기준으로 계산하면 오른쪽 패널이 잘려서 버튼이 클리핑 영역 밖에 그려짐)
+      const isSplitScreenActive = (mp.role === "host" && player2) || (mp.role === "client" && remotePlayer);
+      const panelWidth = isSplitScreenActive ? width / 2 : width;
+      const base = Math.min(66, Math.max(54, panelWidth * 0.12)) * 0.9; // 무기/액션 버튼 10% 축소
       const gap = Math.max(12, base * 0.18);
       const safeRight = 22;
-      const attackRBase = Math.min(70, Math.max(62, width * 0.126));
+      const attackRBase = Math.min(70, Math.max(62, panelWidth * 0.126));
       const attackR = (playerChar && playerChar.id === 1) ? attackRBase * 0.8 : attackRBase * 0.95;
       const stickY = height - 112;
       // 이동=좌측, AIM=우측 / 양쪽 다 화면 안쪽으로 (코너에서 150px 안으로)
       const moveStickX = 150;            // 이동 (좌측 하단, 안쪽)
-      const aimStickX = width - 150;     // AIM (우측 하단, 안쪽)
+      const aimStickX = panelWidth - 150;     // AIM (우측 하단, 안쪽)
       // 액션 버튼 클러스터: AIM(우측) 조이스틱 위에, 안쪽으로 따라와 우상단 미니맵과 열 겹침 최소화
       const actionX = aimStickX + gap / 2;               // 우측 컬럼
       const rightStickTop = stickY - 58;                 // 우측(AIM) 조이스틱 상단
